@@ -10,9 +10,9 @@ small{color:#666}
 <h1>Name places from OpenStreetMap</h1>
 <p>Open <b>inbox/places_todo.json</b> (written by <code>build.py</code>), press <b>Run</b>. Your browser asks
 <a href="https://overpass-api.de">overpass-api.de</a> for the nearest named thing within 60 m of each place
-(about 2,500 places → ~20 requests, 1–2 minutes). When done, save the download as <b>inbox/osm_places.json</b>
+(about 3,000 places → ~75 small requests, a few minutes; the log shows progress per batch). When done, save the download as <b>inbox/osm_places.json</b>
 and run <code>build.py</code> again. Manual names in <code>labels.json</code> always win.</p>
-<p><small>Privacy note: this sends the coordinates of your frequent places to the Overpass server, in batches of 120.
+<p><small>Privacy note: this sends the coordinates of your frequent places to the Overpass server, in batches of 40.
 Nothing else leaves your browser. Don't run it if that is not OK for you.</small></p>
 <p><input type="file" id="f" accept=".json"> <button id="run" disabled>Run</button></p>
 <p id="status"></p>
@@ -24,20 +24,29 @@ $("#f").onchange = async e => { todo = JSON.parse(await e.target.files[0].text()
 const hav = (a, b, c, d) => { const p = Math.PI / 180; return 12742000 * Math.asin(Math.sqrt(Math.sin((c - a) * p / 2) ** 2 + Math.cos(a * p) * Math.cos(c * p) * Math.sin((d - b) * p / 2) ** 2)); };
 const KEYS = ["amenity", "shop", "tourism", "leisure", "office", "public_transport", "railway", "aeroway", "sport", "healthcare", "craft", "club", "historic", "building"];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const ENDPOINTS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://lz4.overpass-api.de/api/interpreter", "https://z.overpass-api.de/api/interpreter"];
+let ep = 0;
+async function overpass(q) {
+  for (let t = 0; t < 8; t++) {
+    const url = ENDPOINTS[ep % ENDPOINTS.length];
+    try {
+      const r = await fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q) });
+      if (r.ok) { const j = await r.json(); if (j.remark) log("remark: " + j.remark); return j; }
+      log(`HTTP ${r.status} from ${new URL(url).host}, switching server`);
+    } catch (e) { log(`${new URL(url).host}: ${e.message}, switching server`); }
+    ep++; await sleep(4000 + 3000 * t);
+  }
+  return null;
+}
 $("#run").onclick = async () => {
   $("#run").disabled = true;
-  const best = {};
-  for (let s = 0; s < todo.length; s += 120) {
-    const chunk = todo.slice(s, s + 120);
-    const q = "[out:json][timeout:90];(" + chunk.map(([k, la, lo]) => `nwr(around:60,${la},${lo})[name];`).join("") + ");out center tags;";
-    let data = null;
-    for (let t = 0; t < 4 && !data; t++) {
-      try {
-        const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q) });
-        if (r.ok) data = await r.json(); else { log(`batch ${s}: HTTP ${r.status}, retrying`); await sleep(20000 * (t + 1)); }
-      } catch (e) { log(`batch ${s}: ${e}`); await sleep(20000 * (t + 1)); }
-    }
-    if (!data) { log(`batch ${s}: gave up`); continue; }
+  const best = {}; const BATCH = 40; let failed = 0;
+  for (let s = 0; s < todo.length; s += BATCH) {
+    const chunk = todo.slice(s, s + BATCH);
+    const q = "[out:json][timeout:120];(" + chunk.map(([k, la, lo]) => `nwr(around:60,${la},${lo})[name];`).join("") + ");out center tags;";
+    const data = await overpass(q);
+    if (!data) { failed += chunk.length; log(`batch at ${s}: gave up`); continue; }
+    let matched = 0;
     for (const el of data.elements) {
       const la = el.lat ?? el.center?.lat, lo = el.lon ?? el.center?.lon; if (la == null) continue;
       const tg = el.tags || {}; let cat = "";
@@ -45,17 +54,18 @@ $("#run").onclick = async () => {
       const pri = cat === "building" ? 2 : (cat === "railway" || cat === "public_transport") ? 1 : cat ? 0 : 3;
       for (const [k, pla, plo] of chunk) {
         const d = hav(pla, plo, la, lo); if (d > 60) continue;
-        const score = d + pri * 40;
+        const score = d + pri * 40; matched++;
         if (!best[k] || score < best[k].score) best[k] = { name: tg.name, score, d: Math.round(d), cat: cat ? `${cat}=${tg[cat]}` : "" };
       }
     }
-    $("#status").textContent = `${Math.min(s + 120, todo.length)} / ${todo.length} queried, ${Object.keys(best).length} named`;
-    await sleep(3000);
+    log(`batch at ${s}: ${data.elements.length} named objects, ${matched} within 60 m`);
+    $("#status").textContent = `${Math.min(s + BATCH, todo.length)} / ${todo.length} queried, ${Object.keys(best).length} named` + (failed ? `, ${failed} skipped` : "");
+    await sleep(1500);
   }
   const out = {}; for (const [k, v] of Object.entries(best)) out[k] = v.name;
   const blob = new Blob([JSON.stringify(out, null, 1)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "osm_places.json"; a.click();
-  log(JSON.stringify(Object.fromEntries(Object.entries(best).slice(0, 40).map(([k, v]) => [k, `${v.name} (${v.cat}, ${v.d} m)`])), null, 1));
-  $("#status").textContent += " — done, osm_places.json downloaded";
+  log("sample: " + JSON.stringify(Object.fromEntries(Object.entries(best).slice(0, 30).map(([k, v]) => [k, `${v.name} (${v.cat}, ${v.d} m)`])), null, 1));
+  $("#status").textContent += " - done, osm_places.json downloaded" + (failed ? " (re-run later for the skipped ones; results merge)" : "");
 };
 </script>
