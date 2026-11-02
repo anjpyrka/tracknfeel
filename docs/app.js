@@ -11,7 +11,7 @@ const STYLE_DARK = "https://tiles.openfreemap.org/styles/dark";
 const CITY_COLORS = ["#3B6FB6","#D2672A","#4F9D69","#B23A8D","#E0B51F","#6D4BB8","#1FA3A3","#C23B3B","#8C7A2A","#D98AB8","#4A8FD0","#7A5230"];
 const OTHER_COLOR = "#A8A49B";
 const MODE_LABEL = { car:"by car", walk:"on foot", run:"running", bike:"by bike", bus:"by bus", train:"by train", metro:"by metro", tram:"by tram", flight:"flying", moto:"by motorbike", ferry:"by ferry", boat:"by boat", ski:"skiing", taxi:"by taxi", hike:"hiking", skate:"skating", swim:"swimming", "?":"moving", still:"still" };
-const MODE_COLOR = { walk:"#4F9D69", run:"#4F9D69", hike:"#4F9D69", bike:"#1FA3A3", flight:"#B23A8D", train:"#6D4BB8", metro:"#6D4BB8", tram:"#6D4BB8", bus:"#6D4BB8", ferry:"#3B6FB6", boat:"#3B6FB6", ski:"#2F7FD1", skate:"#2F7FD1", swim:"#2F7FD1" };
+const MODE_COLOR = { car:"#2548F0", taxi:"#2548F0", moto:"#2548F0", "?":"#5B6B7F", walk:"#4F9D69", run:"#4F9D69", hike:"#4F9D69", bike:"#1FA3A3", flight:"#B23A8D", train:"#6D4BB8", metro:"#6D4BB8", tram:"#6D4BB8", bus:"#6D4BB8", ferry:"#3B6FB6", boat:"#3B6FB6", ski:"#2F7FD1", skate:"#2F7FD1", swim:"#2F7FD1" };
 
 const S = {
   key: null, manifest: null, idx: null, years: new Map(), loading: new Map(),
@@ -143,6 +143,7 @@ function writeHash() { history.replaceState(null, "", `#d=${S.date}&v=${S.view}`
 
 /* ---------------------------------------------------------------- map */
 function initMap() {
+  window.tnf = S;   // debugging handle (data stays encrypted at rest; this is only the live session)
   S.map = new maplibregl.Map({
     container: "map", style: S.dark ? STYLE_DARK : STYLE_LIGHT, center: [12.48, 41.9], zoom: 3,
     attributionControl: { compact: true }, hash: false,
@@ -163,10 +164,12 @@ function addLayers() {
     "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(37,72,240,0)", 0.15, "rgba(37,72,240,0.35)", 0.4, "rgba(31,163,163,0.7)", 0.7, "rgba(224,181,31,0.9)", 1, "rgba(210,103,42,1)"],
   }});
   m.addLayer({ id: "tracks-casing", type: "line", source: "tracks", layout: { "line-cap": "round", "line-join": "round" },
-    paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4, 14, 7], "line-opacity": 0.8 } });
-  m.addLayer({ id: "tracks", type: "line", source: "tracks", layout: { "line-cap": "round", "line-join": "round" },
-    paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2, 14, 3.5], "line-opacity": 0.95,
-      "line-dasharray": ["case", ["==", ["get", "src"], "A"], ["literal", [1, 2]], ["literal", [1, 0]]] } });
+    paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4.5, 14, 7.5], "line-opacity": 0.7 } });
+  // line-dasharray cannot be data-driven in MapLibre (the single layer silently failed and only the white casing showed)
+  m.addLayer({ id: "tracks", type: "line", source: "tracks", filter: ["!=", ["get", "src"], "A"], layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 14, 4.5], "line-opacity": 0.95 } });
+  m.addLayer({ id: "tracks-approx", type: "line", source: "tracks", filter: ["==", ["get", "src"], "A"], layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2, 14, 3.5], "line-opacity": 0.8, "line-dasharray": [1, 2] } });
   m.addLayer({ id: "stops", type: "circle", source: "stops", paint: {
     "circle-radius": ["interpolate", ["linear"], ["get", "mins"], 5, 4, 120, 8, 600, 12],
     "circle-color": ["case", ["in", ["get", "src"], ["literal", ["R", "P"]]], "#D08A1E", "#15212E"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
