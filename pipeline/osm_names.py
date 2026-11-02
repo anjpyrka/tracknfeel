@@ -63,7 +63,7 @@ def main():
         except Exception as e:
             return key, lat, lng, None, e
     done = 0
-    with ThreadPoolExecutor(max_workers=4) as ex:            # Photon copes fine with a few parallel requests
+    with ThreadPoolExecutor(max_workers=2) as ex:            # Photon copes fine with a few parallel requests
         for i in range(0, len(pending), 40):
             if time.time() - t0 > BUDGET * 0.7:
                 print("photon budget reached"); break
@@ -71,23 +71,28 @@ def main():
                 done += 1
                 if err is not None:
                     fails += 1
+                    if fails <= 5 or fails % 20 == 0: print(f"  photon error #{fails}: {err}")
+                    if "429" in str(err) or "503" in str(err): time.sleep(10)
                 elif n:
                     known[key] = n; named += 1
                 else:
                     misses.append((key, lat, lng))
-            if fails > 60:
+            if fails > 60 and fails > 0.5 * done:
                 print("photon failing repeatedly, stopping"); break
             if done % 200 < 40:
                 print(f"  photon {done}/{len(pending)}: {named} named"); json.dump(known, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"photon: {named} named, {len(misses)} misses")
     n2 = 0
+    nfails = 0
     for key, lat, lng in misses:
         if time.time() - t0 > BUDGET: print("nominatim budget reached"); break
         try:
             n = nominatim(lat, lng)
         except Exception as e:
-            fails += 1; n = None
-            if fails > 60: print("too many failures, stopping:", e); break
+            nfails += 1; n = None
+            if nfails <= 3: print("  nominatim error:", e)
+            if nfails > 30: print("nominatim failing repeatedly, stopping"); break
+            time.sleep(5)
         if n: known[key] = n; n2 += 1
         time.sleep(1.05)                                   # Nominatim usage policy: max 1 request/s
     print(f"nominatim: {n2} more named; total {len(known)} named places")
