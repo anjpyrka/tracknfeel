@@ -39,7 +39,7 @@ async function gunzipJSON(buf) {
   return JSON.parse(await new Response(stream).text());
 }
 async function loadEncrypted(name) {
-  const r = await fetch(DATA + name, { cache: "force-cache" });
+  const r = await fetch(`${DATA}${name}?v=${encodeURIComponent(S.manifest.built)}`, { cache: "force-cache" });
   if (!r.ok) throw new Error("fetch " + name);
   return gunzipJSON(await decryptBlob(await r.arrayBuffer()));
 }
