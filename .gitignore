@@ -1,0 +1,6 @@
+# raw location data never goes to GitHub
+inbox/
+raw/
+.secret
+__pycache__/
+*.pyc

@@ -1,0 +1,103 @@
+{
+ "v": 1,
+ "salt": "dcc2c72c7cebe8b9776eef3ec54451dc",
+ "iter": 200000,
+ "built": "2026-11-02T08:51:18Z",
+ "files": [
+  {
+   "name": "2012.bin",
+   "year": 2012,
+   "bytes": 1471,
+   "days": 5
+  },
+  {
+   "name": "2013.bin",
+   "year": 2013,
+   "bytes": 86178,
+   "days": 290
+  },
+  {
+   "name": "2014.bin",
+   "year": 2014,
+   "bytes": 125044,
+   "days": 336
+  },
+  {
+   "name": "2015.bin",
+   "year": 2015,
+   "bytes": 171465,
+   "days": 365
+  },
+  {
+   "name": "2016.bin",
+   "year": 2016,
+   "bytes": 177734,
+   "days": 365
+  },
+  {
+   "name": "2017.bin",
+   "year": 2017,
+   "bytes": 171165,
+   "days": 358
+  },
+  {
+   "name": "2018.bin",
+   "year": 2018,
+   "bytes": 160129,
+   "days": 363
+  },
+  {
+   "name": "2019.bin",
+   "year": 2019,
+   "bytes": 179971,
+   "days": 365
+  },
+  {
+   "name": "2020.bin",
+   "year": 2020,
+   "bytes": 136246,
+   "days": 366
+  },
+  {
+   "name": "2021.bin",
+   "year": 2021,
+   "bytes": 142998,
+   "days": 365
+  },
+  {
+   "name": "2022.bin",
+   "year": 2022,
+   "bytes": 174468,
+   "days": 365
+  },
+  {
+   "name": "2023.bin",
+   "year": 2023,
+   "bytes": 189646,
+   "days": 365
+  },
+  {
+   "name": "2024.bin",
+   "year": 2024,
+   "bytes": 192755,
+   "days": 366
+  },
+  {
+   "name": "2025.bin",
+   "year": 2025,
+   "bytes": 158908,
+   "days": 365
+  },
+  {
+   "name": "2026.bin",
+   "year": 2026,
+   "bytes": 150956,
+   "days": 306
+  }
+ ],
+ "index": {
+  "name": "index.bin",
+  "bytes": 370477
+ },
+ "check": "544e4631326df5dbdd926184a9e321b2df5b24c8eb36c8a78690689c2b234e236fd2f7c5019add0c311f4e3944"
+}

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>tracknfeel</title>
+<meta name="description" content="Where I was, every day since 2012. A private, static location archive.">
+<meta name="theme-color" content="#15212E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- unlock gate -->
+<section id="gate" class="gate">
+  <form id="gateForm" class="gate-card" autocomplete="off">
+    <h1 class="wordmark">track<span>n</span>feel</h1>
+    <p class="gate-lede" id="gateLede">Where I was, every day since September 2012.</p>
+    <label class="field">
+      <span>Passphrase</span>
+      <input id="pass" type="password" autocomplete="current-password" autofocus required>
+    </label>
+    <label class="check"><input id="remember" type="checkbox" checked> Stay unlocked on this device</label>
+    <button type="submit" class="btn primary" id="unlockBtn">Unlock</button>
+    <p class="gate-err" id="gateErr" hidden>That passphrase doesn't open the archive.</p>
+    <p class="gate-foot">Data is decrypted in your browser only. Nothing is sent anywhere.</p>
+  </form>
+</section>
+
+<!-- app -->
+<div id="app" class="app" hidden>
+  <div id="map" class="map"></div>
+
+  <header class="topbar">
+    <a class="wordmark small" href="#" id="homeLink">track<span>n</span>feel</a>
+    <div class="search">
+      <input id="q" type="search" placeholder="A date, a month, a city, a country" aria-label="Search">
+      <ul id="qResults" class="q-results" hidden></ul>
+    </div>
+    <nav class="views" role="tablist">
+      <button data-view="day" class="on" role="tab">Day</button>
+      <button data-view="year" role="tab">Year</button>
+      <button data-view="life" role="tab">Life</button>
+      <button data-view="places" role="tab">Places</button>
+    </nav>
+    <button class="icon-btn" id="lockBtn" title="Lock">⌂</button>
+  </header>
+
+  <aside id="panel" class="panel">
+    <div class="sheet-handle" id="sheetHandle"></div>
+    <div id="panelBody" class="panel-body"></div>
+  </aside>
+
+  <footer class="ribbon-wrap">
+    <div class="ribbon-tools">
+      <button id="prevDay" class="icon-btn" title="Previous day (←)">‹</button>
+      <button id="play" class="icon-btn" title="Play (space)">▶</button>
+      <button id="nextDay" class="icon-btn" title="Next day (→)">›</button>
+      <span id="ribbonLabel" class="ribbon-label"></span>
+      <span class="ribbon-legend" id="ribbonLegend"></span>
+    </div>
+    <canvas id="ribbon" class="ribbon" height="44"></canvas>
+    <div id="ribbonTip" class="ribbon-tip" hidden></div>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
