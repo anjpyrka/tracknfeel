@@ -1,0 +1,67 @@
+name: Scan Google Photos Takeout on Drive
+
+# Reads Takeout zips straight from Google Drive (one at a time, on the runner's disk), extracts only the
+# geotag/EXIF/time per photo into inbox/photos/photo_index.json, and writes that index back to Drive
+# (My Drive/tracknfeel/inbox/photos/). No photo ever leaves Drive for anywhere but the throwaway runner,
+# and nothing is committed to the repository. Then triggers the normal rebuild.
+#
+# Run it from the Actions tab after a Takeout landed in Drive. Default: every takeout-*.zip in My Drive/Takeout.
+
+on:
+  workflow_dispatch:
+    inputs:
+      folder:
+        description: "Drive folder holding the Takeout zips"
+        default: "Takeout"
+      pattern:
+        description: "File name pattern (rclone glob)"
+        default: "takeout-*.zip"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get install -y -qq rclone >/dev/null
+          python3 -m pip install -q pillow
+
+      - name: Configure Drive access
+        env:
+          RCLONE_GDRIVE_TOKEN: ${{ secrets.RCLONE_GDRIVE_TOKEN }}
+        run: |
+          mkdir -p ~/.config/rclone
+          printf '[gdrive]\ntype = drive\nscope = drive\ntoken = %s\n' "$RCLONE_GDRIVE_TOKEN" > ~/.config/rclone/rclone.conf
+
+      - name: Scan zips one by one
+        run: |
+          mkdir -p inbox/photos work
+          rclone copy "gdrive:tracknfeel/inbox/photos" inbox/photos --include "photo_index.json" || true
+          rclone lsf "gdrive:${{ inputs.folder }}" --include "${{ inputs.pattern }}" --files-only | sort > zips.txt
+          echo "$(wc -l < zips.txt) zips to scan"; cat zips.txt
+          while read -r z; do
+            [ -z "$z" ] && continue
+            echo "== $z"
+            rclone copy "gdrive:${{ inputs.folder }}/$z" work --stats-one-line -v 2>&1 | tail -1
+            python3 pipeline/photo_scan.py "work/$z"
+            rm -f "work/$z"
+            tail -3 inbox/photos/photo_scan.log
+          done < zips.txt
+          python3 - <<'EOF'
+          import json; rows = json.load(open("inbox/photos/photo_index.json"))
+          print(len(rows), "photos indexed;", sum(1 for r in rows if r.get("lat") or r.get("slat")), "with a location")
+          EOF
+
+      - name: Write index back to Drive
+        run: rclone copy inbox/photos "gdrive:tracknfeel/inbox/photos" --include "photo_index.json" --include "photo_scan.log" -v 2>&1 | tail -2
+
+      - name: Trigger rebuild
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run update.yml --ref "${{ github.ref_name }}"

@@ -4,7 +4,7 @@ name: Rebuild timeline data
 # encrypted bundles and pushes docs/data. GitHub Pages then redeploys on its own.
 # One-time setup (repository → Settings → Secrets and variables → Actions):
 #   TRACKNFEEL_PASSPHRASE   the viewer passphrase (same as .secret)
-#   RCLONE_GDRIVE_TOKEN     output of `rclone authorize "drive" --drive-scope drive.readonly` run on your PC
+#   RCLONE_GDRIVE_TOKEN     output of `rclone authorize "drive"` run on your PC
 # Drive layout: My Drive/tracknfeel/inbox/…  (same content as the local inbox, photo zips not needed)
 #               My Drive/GPSLogger for Android/*.gpx  (written by the app)
 
@@ -34,7 +34,7 @@ jobs:
           RCLONE_GDRIVE_TOKEN: ${{ secrets.RCLONE_GDRIVE_TOKEN }}
         run: |
           mkdir -p ~/.config/rclone inbox/gpx
-          printf '[gdrive]\ntype = drive\nscope = drive.readonly\ntoken = %s\n' "$RCLONE_GDRIVE_TOKEN" > ~/.config/rclone/rclone.conf
+          printf '[gdrive]\ntype = drive\nscope = drive\ntoken = %s\n' "$RCLONE_GDRIVE_TOKEN" > ~/.config/rclone/rclone.conf
           rclone copy "gdrive:tracknfeel/inbox" inbox --exclude "photos/*.zip" --exclude "**/*.zip.part" --transfers 8 --stats-one-line -v 2>&1 | tail -5
           rclone copy "gdrive:GPSLogger for Android" inbox/gpx --include "*.gpx" --transfers 8 --stats-one-line -v 2>&1 | tail -3
           echo "inbox: $(find inbox -type f | wc -l) files, $(du -sh inbox | cut -f1)"

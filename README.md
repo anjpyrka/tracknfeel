@@ -29,13 +29,17 @@ It pulls `My Drive/tracknfeel/inbox` and the GPSLogger folder with rclone, rebui
 
 One-time setup:
 
-1. Upload the local `inbox/` folder to Google Drive as `tracknfeel/inbox` (the 15 GB of photo zips are not needed —
-   only `photos/photo_index.json`; the Strava `export_*.zip` is useful).
-2. On the PC: `winget install Rclone.Rclone`, then `rclone authorize "drive" --drive-scope drive.readonly` — a browser
-   window asks for read-only Drive access and the terminal prints a `{"access_token": …}` block.
+1. Upload the local `inbox/` folder to Google Drive as `tracknfeel/inbox` (the photo zips are not needed, only
+   `photos/photo_index.json`; the Strava `export_*.zip` is useful).
+2. On the PC: `winget install Rclone.Rclone`, then `rclone authorize "drive"` - a browser window asks for Drive
+   access and the terminal prints a `{"access_token": …}` block.
 3. GitHub → repository → Settings → Secrets and variables → Actions → New repository secret, twice:
    `RCLONE_GDRIVE_TOKEN` = that block, `TRACKNFEEL_PASSPHRASE` = the viewer passphrase.
 4. Actions tab → "Rebuild timeline data" → Run workflow, once, to see it go green.
+
+Google Photos Takeouts are handled the same way: Takeout → "Add to Drive" puts the zips in `My Drive/Takeout`;
+Actions tab → "Scan Google Photos Takeout on Drive" → Run workflow reads them there (one at a time, on a throwaway
+runner, nothing committed), updates `tracknfeel/inbox/photos/photo_index.json` in Drive and rebuilds. No downloads.
 
 Optional top-ups, whenever you feel like it (every few months is plenty):
 
