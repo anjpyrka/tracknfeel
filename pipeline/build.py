@@ -532,6 +532,45 @@ def pack(obj):
     raw = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return gzip.compress(raw, 9), len(raw)
 
+# ------------------------------------------------ photos overrule guessed days
+def reconcile_photos_vs_reconstruction():
+    """A geotagged photo is hard evidence; a reconstructed day is a guess. Where they disagree by more
+    than 30 km, the guess goes. Guessed days wedged between photo days in the same far-away place
+    (<= 4 days apart) are moved there too - you don't fly home from Siem Reap for a day."""
+    def centroid(vs):
+        return (sum(v[2] for v in vs) / len(vs), sum(v[3] for v in vs) / len(vs))
+    photo_days = {}
+    dropped = moved = 0
+    for dd, D in list(days.items()):
+        if D is None: continue
+        P = [v for v in D.visits if v[6] == "P"]; R = [v for v in D.visits if v[6] == "R"]
+        if P:
+            photo_days[dd] = centroid(P)
+        if P and R and all(min(haversine(p[2], p[3], r[2], r[3]) for r in R) > 30_000 for p in P):
+            D.visits = [v for v in D.visits if v[6] != "R"]; D.sources.discard("R")
+            D.notes = [n for n in D.notes if n.get("source") == "Google Photos"] + [{"label": "Earlier guess overruled: my photos put me somewhere else that day", "source": "Google Photos", "confidence": "high"}]
+            dropped += 1
+    pdates = sorted(photo_days)
+    for dd, D in days.items():
+        if D is None or dd in photo_days: continue
+        R = [v for v in D.visits if v[6] == "R"]
+        if not R or any(v[6] in ("T", "G", "S") for v in D.visits): continue
+        before = [p for p in pdates if p < dd][-1:]; after = [p for p in pdates if p > dd][:1]
+        if not before or not after: continue
+        b, a = before[0], after[0]
+        span = (datetime.date.fromisoformat(a) - datetime.date.fromisoformat(b)).days
+        if span > 4: continue
+        cb, ca = photo_days[b], photo_days[a]
+        if haversine(cb[0], cb[1], ca[0], ca[1]) > 300_000: continue      # same trip, e.g. Galle -> Negombo
+        if min(haversine(cb[0], cb[1], r[2], r[3]) for r in R) < 100_000: continue
+        lat, lng = (cb[0] + ca[0]) / 2, (cb[1] + ca[1]) / 2
+        key = place_key(None, lat, lng)
+        D.visits = [v for v in D.visits if v[6] != "R"] + [[0.0, 1440.0, lat, lng, key, "UNKNOWN", "R"]]
+        note_place(key, lat, lng, None, 1440)
+        D.notes.append({"label": f"Between photo-evidenced days ({b} and {a}) in the same area", "source": "Google Photos", "confidence": "medium"})
+        moved += 1
+    log(f"  photos vs reconstruction: {dropped} guessed days overruled, {moved} in-between days moved")
+
 # ------------------------------------------------------------ place roles from visit patterns
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -680,6 +719,7 @@ def main():
     rp = os.path.join(INBOX, "reconstructed.json")
     if os.path.exists(rp):
         ingest_reconstructed(rp)
+    reconcile_photos_vs_reconstruction()
 
     # 2. derive
     log("geocoding")
