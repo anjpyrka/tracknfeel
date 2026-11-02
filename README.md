@@ -27,15 +27,21 @@ and the GitHub Action in `.github/workflows/update.yml` runs on the 1st of every
 It pulls `My Drive/tracknfeel/inbox` and the GPSLogger folder with rclone, rebuilds the encrypted bundles and pushes
 `docs/data/`; GitHub Pages redeploys by itself. So the inbox lives in Google Drive, not on a PC.
 
-One-time setup:
+One-time setup, in a normal PowerShell window (Start → type "powershell"; no admin needed, accept the UAC
+prompt if the installer shows one). rclone builds the Drive folder structure and uploads the inbox itself:
 
-1. Upload the local `inbox/` folder to Google Drive as `tracknfeel/inbox` (the photo zips are not needed, only
-   `photos/photo_index.json`; the Strava `export_*.zip` is useful).
-2. On the PC: `winget install Rclone.Rclone`, then `rclone authorize "drive"` - a browser window asks for Drive
-   access and the terminal prints a `{"access_token": …}` block.
-3. GitHub → repository → Settings → Secrets and variables → Actions → New repository secret, twice:
-   `RCLONE_GDRIVE_TOKEN` = that block, `TRACKNFEEL_PASSPHRASE` = the viewer passphrase.
-4. Actions tab → "Rebuild timeline data" → Run workflow, once, to see it go green.
+```powershell
+winget install Rclone.Rclone
+# close and reopen PowerShell so rclone is on the PATH, then:
+rclone config create gdrive drive scope drive        # opens the browser once: allow Drive access
+rclone copy C:\claude\tracknfeel\inbox gdrive:tracknfeel/inbox --exclude "photos/*.zip" --exclude "places_todo.json" -P
+rclone config show gdrive                            # copy the whole {"access_token": ...} value of the token line
+```
+
+Then GitHub → repository → Settings → Secrets and variables → Actions → New repository secret, twice:
+`RCLONE_GDRIVE_TOKEN` = that token value, `TRACKNFEEL_PASSPHRASE` = the viewer passphrase.
+Finally Actions tab → "Rebuild timeline data" → Run workflow, once, to see it go green.
+From then on the same `rclone copy` line (or drag and drop in the Drive web UI) is how anything new reaches the inbox.
 
 Google Photos Takeouts are handled the same way: Takeout → "Add to Drive" puts the zips in `My Drive/Takeout`;
 Actions tab → "Scan Google Photos Takeout on Drive" → Run workflow reads them there (one at a time, on a throwaway
