@@ -39,6 +39,14 @@ Timeline exports overlap; the pipeline de-duplicates, so old exports can stay in
 
 They are drawn in amber and labelled in the day view so they are never mistaken for measured data.
 
+## Photo evidence
+
+For days no device recorded, geotagged photos fill in. `pipeline/photo_scan.py <takeout.zip ...>` reads the
+JSON sidecars and the EXIF header of every JPEG straight out of a Google Photos Takeout (no extraction) and
+writes `inbox/photos/photo_index.json`. `inbox/cameras.json` lists the EXIF make/model substrings of my own
+phones; photos from other devices that were shared into the library are ignored. The build then turns
+consecutive photos within 400 m into one "photo taken here" stop, only on days without Timeline data.
+
 ## Labels
 
 `inbox/labels.json` maps a Google place id (or `"lat,lng"` with 4 decimals) to a display name.

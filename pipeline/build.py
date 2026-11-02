@@ -220,6 +220,8 @@ def ingest_timeline(path):
     log("timeline:", os.path.basename(path))
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
+    if not isinstance(data, dict) or "semanticSegments" not in data:
+        log("  skipped (not a Timeline export)"); return
     segs = data.get("semanticSegments", [])
     n_v = n_a = n_p = 0
     for s in segs:
@@ -361,6 +363,57 @@ def ingest_reconstructed(path):
         n += 1
     log("  reconstructed entries:", n)
 
+# ---------------------------------------------------------------- photos
+def ingest_photos(index_path, cameras):
+    """Geotagged photos as evidence for days no device recorded. inbox/photos/photo_index.json comes from
+    pipeline/photo_scan.py; inbox/cameras.json lists substrings of EXIF make/model that are MY phones, so
+    photos from other people's devices that were shared into the library are ignored."""
+    rows = json.load(open(index_path, encoding="utf-8"))
+    n = used = 0
+    bydate = defaultdict(list)
+    for r in rows:
+        cam = f"{r.get('make','')} {r.get('model','')}".strip()
+        if not cam or not any(c.lower() in cam.lower() for c in cameras):
+            continue
+        lat, lng = r.get("lat"), r.get("lng")
+        if (lat is None or lng is None) and r.get("slat"):
+            lat, lng = r["slat"], r["slng"]
+        if not lat or not lng:
+            continue
+        dt = r.get("dt")  # EXIF local time "YYYY:MM:DD HH:MM:SS" is the camera's local clock
+        if dt and len(dt) >= 19:
+            dd = dt[:10].replace(":", "-"); mins = int(dt[11:13]) * 60 + int(dt[14:16])
+        elif r.get("ts"):
+            local = datetime.datetime.utcfromtimestamp(r["ts"]) + datetime.timedelta(minutes=int(round(lng / 15.0)) * 60)
+            dd = local.strftime("%Y-%m-%d"); mins = local.hour * 60 + local.minute
+        else:
+            continue
+        n += 1
+        bydate[dd].append((mins, float(lat), float(lng), cam, r.get("file", "")))
+    for dd, lst in bydate.items():
+        D = day(dd)
+        if "T" in D.sources:
+            continue  # the phone recorded this day; photos add nothing but clutter
+        lst.sort()
+        # cluster consecutive photos within 400 m into one stop (first to last shutter time, at least 5 min)
+        clusters = []
+        for mins, lat, lng, cam, fn in lst:
+            c = clusters[-1] if clusters else None
+            if c and haversine(c["lat"], c["lng"], lat, lng) < 400:
+                c["end"] = mins; c["n"] += 1
+                c["lat"] = (c["lat"] * (c["n"] - 1) + lat) / c["n"]; c["lng"] = (c["lng"] * (c["n"] - 1) + lng) / c["n"]
+            else:
+                clusters.append({"start": mins, "end": mins, "lat": lat, "lng": lng, "n": 1})
+        for c in clusters:
+            key = place_key(None, c["lat"], c["lng"])
+            end = min(1440.0, max(c["end"], c["start"] + 5))
+            D.visits.append([c["start"], end, c["lat"], c["lng"], key, "PHOTO", "P"])
+            note_place(key, c["lat"], c["lng"], None, end - c["start"])
+            used += 1
+        D.sources.add("P")
+        D.notes.append({"label": f"{len(lst)} geotagged photo{'s' if len(lst) > 1 else ''} from my phone in {len(clusters)} place{'s' if len(clusters) > 1 else ''}", "source": "Google Photos", "confidence": "high"})
+    log(f"  photos: {n} geotagged from my cameras, {used} photo stops on {sum(1 for d in bydate if 'P' in days[d].sources)} undocumented days")
+
 # ------------------------------------------------------------ encryption
 def encrypt(passphrase, salt, plaintext: bytes) -> bytes:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -397,7 +450,8 @@ def main():
 
     # 1. ingest
     tl_files = sorted(glob.glob(os.path.join(INBOX, "**", "*.json"), recursive=True))
-    tl_files = [p for p in tl_files if os.path.basename(p) not in ("reconstructed.json", "labels.json")]
+    tl_files = [p for p in tl_files if os.path.basename(p) not in ("reconstructed.json", "labels.json", "cameras.json", "photo_index.json")
+                and os.sep + "photos" + os.sep not in p]
     for p in tl_files:
         ingest_timeline(p)
     # offset guess per UTC date from timeline visits (approximate: use the local date)
@@ -409,6 +463,13 @@ def main():
     for p in gpx_files:
         ingest_gpx(p, tz_guess)
     log(f"  gpx files: {len(gpx_files)}")
+    pi = os.path.join(INBOX, "photos", "photo_index.json"); cp = os.path.join(INBOX, "cameras.json")
+    if os.path.exists(pi):
+        cams = json.load(open(cp, encoding="utf-8")) if os.path.exists(cp) else []
+        if cams:
+            ingest_photos(pi, cams)
+        else:
+            log("  photos: inbox/cameras.json missing, photo evidence skipped")
     rp = os.path.join(INBOX, "reconstructed.json")
     if os.path.exists(rp):
         ingest_reconstructed(rp)

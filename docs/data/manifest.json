@@ -2,7 +2,7 @@
  "v": 1,
  "salt": "dcc2c72c7cebe8b9776eef3ec54451dc",
  "iter": 200000,
- "built": "2026-11-02T08:51:18Z",
+ "built": "2026-11-02T10:06:36Z",
  "files": [
   {
    "name": "2012.bin",
@@ -85,19 +85,19 @@
   {
    "name": "2025.bin",
    "year": 2025,
-   "bytes": 158908,
+   "bytes": 162564,
    "days": 365
   },
   {
    "name": "2026.bin",
    "year": 2026,
-   "bytes": 150956,
+   "bytes": 150959,
    "days": 306
   }
  ],
  "index": {
   "name": "index.bin",
-  "bytes": 370477
+  "bytes": 370779
  },
- "check": "544e4631326df5dbdd926184a9e321b2df5b24c8eb36c8a78690689c2b234e236fd2f7c5019add0c311f4e3944"
+ "check": "544e4631c824b8331d17d8d562934d309fc815ba3527fcbb933604a7c9ac6e651efc97c47344e051ff9e9cab6a"
 }

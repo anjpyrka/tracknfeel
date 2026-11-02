@@ -126,7 +126,7 @@ function assignCityColors() {
 const colorFor = c => S.cityColor.get(c) || OTHER_COLOR;
 function dayColor(d) {
   const rec = S.idx.days[d]; if (!rec) return null;
-  if (rec[2] === "R") return getComputedStyle(document.documentElement).getPropertyValue("--recon").trim();
+  if (rec[2].includes("R") || rec[2].includes("P")) return getComputedStyle(document.documentElement).getPropertyValue("--recon").trim();
   return colorFor(rec[0]);
 }
 async function getYear(y) {
@@ -169,7 +169,7 @@ function addLayers() {
       "line-dasharray": ["case", ["==", ["get", "src"], "A"], ["literal", [1, 2]], ["literal", [1, 0]]] } });
   m.addLayer({ id: "stops", type: "circle", source: "stops", paint: {
     "circle-radius": ["interpolate", ["linear"], ["get", "mins"], 5, 4, 120, 8, 600, 12],
-    "circle-color": ["case", ["==", ["get", "src"], "R"], "#D08A1E", "#15212E"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
+    "circle-color": ["case", ["in", ["get", "src"], ["literal", ["R", "P"]]], "#D08A1E", "#15212E"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
   m.on("click", "stops", e => {
     const p = e.features[0].properties;
     new maplibregl.Popup({ closeButton: false, offset: 10 }).setLngLat(e.lngLat).setHTML(`<b>${esc(p.name)}</b><br>${esc(p.meta)}`).addTo(m);
@@ -225,6 +225,7 @@ function placeName(v, day) {
   const sem = v[5];
   if (sem === "HOME" || sem === "INFERRED_HOME") return "Home";
   if (sem === "WORK" || sem === "INFERRED_WORK") return "Work";
+  if (sem === "PHOTO") return "Photo taken here";
   const city = p && p[6] >= 0 ? cityName(p[6]) : cityName(day.c);
   if (v[6] === "R") return `${city} (reconstructed)`;
   return `Stop in ${city}`;
@@ -319,7 +320,7 @@ async function renderDay(fit) {
   const day = yj.days[d]; if (!day) { body.innerHTML += "<p>No data for this day.</p>"; return; }
   const touched = (day.ct || []).map(cityName).filter((v, i, a) => a.indexOf(v) === i);
   const cc = [...new Set((day.ct || []).map(cityCC))].map(countryName);
-  const recon = day.s.includes("R"), gps = day.s.includes("G");
+  const recon = day.s.includes("R") || day.s.includes("P"), gps = day.s.includes("G");
   const items = [...day.v.map(v => ({ t: v[0], kind: "visit", v })), ...day.m.map(m => ({ t: m[0], kind: "move", m }))].sort((a, b) => a.t - b.t);
   let html = `<div class="dow">${fmtDate(d, { weekday: "long" })}</div>
     <h2>${fmtDate(d, { day: "numeric", month: "long", year: "numeric" })}${recon ? '<span class="chip">reconstructed</span>' : ""}</h2>
@@ -327,7 +328,7 @@ async function renderDay(fit) {
   if (day.n) html += `<p class="hint">${day.n.map(n => `${esc(n.label)} <small>(${esc(n.source)}, ${esc(n.confidence)} confidence)</small>`).join("<br>")}</p>`;
   html += `<ol class="tl">` + items.map(it => {
     if (it.kind === "visit") {
-      const v = it.v; return `<li class="visit ${v[6] === "R" ? "recon" : ""}" data-ll="${v[2]},${v[3]}"><time>${hm(v[0])}</time><span class="dot"></span><div class="tl-name">${esc(placeName(v, day))}</div><div class="tl-meta">${dur(v[1] - v[0])}${v[1] >= 1440 ? ", overnight" : ""}</div></li>`;
+      const v = it.v; return `<li class="visit ${v[6] === "R" || v[6] === "P" ? "recon" : ""}" data-ll="${v[2]},${v[3]}"><time>${hm(v[0])}</time><span class="dot"></span><div class="tl-name">${esc(placeName(v, day))}</div><div class="tl-meta">${dur(v[1] - v[0])}${v[1] >= 1440 ? ", overnight" : ""}</div></li>`;
     }
     const m = it.m; return `<li class="move"><time>${hm(m[0])}</time><span class="dot"></span>${esc(MODE_LABEL[m[2]] || m[2])}, ${km(m[3] / 1000)} km, ${dur(m[1] - m[0])}</li>`;
   }).join("") + `</ol>`;
@@ -343,7 +344,7 @@ async function renderYear() {
   const body = $("#panelBody");
   const days = S.dates.filter(d => d.startsWith(y));
   const cnt = new Map(), ccs = new Map(); let kmT = 0, recon = 0;
-  for (const d of days) { const r = S.idx.days[d]; cnt.set(r[0], (cnt.get(r[0]) || 0) + 1); const cc = cityCC(r[0]); ccs.set(cc, (ccs.get(cc) || 0) + 1); kmT += r[1]; if (r[2] === "R") recon++; }
+  for (const d of days) { const r = S.idx.days[d]; cnt.set(r[0], (cnt.get(r[0]) || 0) + 1); const cc = cityCC(r[0]); ccs.set(cc, (ccs.get(cc) || 0) + 1); kmT += r[1]; if (r[2].includes("R") || r[2].includes("P")) recon++; }
   const top = [...cnt.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
   const years = [...new Set(S.dates.map(d => d.slice(0, 4)))];
   const yi = years.indexOf(y);
@@ -357,7 +358,7 @@ async function renderYear() {
       if (dd > dim) { html += `<span class="d none"></span>`; continue; }
       const date = `${y}-${pad(m)}-${pad(dd)}`; const r = S.idx.days[date];
       const col = r ? colorFor(r[0]) : "";
-      html += `<span class="d ${r && r[2] === "R" ? "recon" : ""} ${date === S.date ? "sel" : ""}" data-d="${date}" title="${fmtShort(date)}${r ? ", " + esc(cityName(r[0])) : ", no data"}" style="${col ? "background:" + col : ""}"></span>`;
+      html += `<span class="d ${r && (r[2].includes("R") || r[2].includes("P")) ? "recon" : ""} ${date === S.date ? "sel" : ""}" data-d="${date}" title="${fmtShort(date)}${r ? ", " + esc(cityName(r[0])) : ", no data"}" style="${col ? "background:" + col : ""}"></span>`;
     }
   }
   html += `</div>`;
