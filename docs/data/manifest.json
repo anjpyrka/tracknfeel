@@ -2,66 +2,66 @@
  "v": 1,
  "salt": "dcc2c72c7cebe8b9776eef3ec54451dc",
  "iter": 200000,
- "built": "2026-11-02T10:06:36Z",
+ "built": "2026-11-02T11:15:59Z",
  "files": [
   {
    "name": "2012.bin",
    "year": 2012,
-   "bytes": 1471,
-   "days": 5
+   "bytes": 3027,
+   "days": 111
   },
   {
    "name": "2013.bin",
    "year": 2013,
-   "bytes": 86178,
-   "days": 290
+   "bytes": 87040,
+   "days": 354
   },
   {
    "name": "2014.bin",
    "year": 2014,
-   "bytes": 125044,
-   "days": 336
+   "bytes": 125874,
+   "days": 363
   },
   {
    "name": "2015.bin",
    "year": 2015,
-   "bytes": 171465,
+   "bytes": 171487,
    "days": 365
   },
   {
    "name": "2016.bin",
    "year": 2016,
-   "bytes": 177734,
+   "bytes": 177758,
    "days": 365
   },
   {
    "name": "2017.bin",
    "year": 2017,
-   "bytes": 171165,
+   "bytes": 171171,
    "days": 358
   },
   {
    "name": "2018.bin",
    "year": 2018,
-   "bytes": 160129,
+   "bytes": 160130,
    "days": 363
   },
   {
    "name": "2019.bin",
    "year": 2019,
-   "bytes": 179971,
+   "bytes": 180001,
    "days": 365
   },
   {
    "name": "2020.bin",
    "year": 2020,
-   "bytes": 136246,
+   "bytes": 136250,
    "days": 366
   },
   {
    "name": "2021.bin",
    "year": 2021,
-   "bytes": 142998,
+   "bytes": 143011,
    "days": 365
   },
   {
@@ -73,31 +73,31 @@
   {
    "name": "2023.bin",
    "year": 2023,
-   "bytes": 189646,
+   "bytes": 189650,
    "days": 365
   },
   {
    "name": "2024.bin",
    "year": 2024,
-   "bytes": 192755,
+   "bytes": 192738,
    "days": 366
   },
   {
    "name": "2025.bin",
    "year": 2025,
-   "bytes": 162564,
+   "bytes": 162559,
    "days": 365
   },
   {
    "name": "2026.bin",
    "year": 2026,
-   "bytes": 150959,
+   "bytes": 150953,
    "days": 306
   }
  ],
  "index": {
   "name": "index.bin",
-  "bytes": 370779
+  "bytes": 371500
  },
- "check": "544e4631c824b8331d17d8d562934d309fc815ba3527fcbb933604a7c9ac6e651efc97c47344e051ff9e9cab6a"
+ "check": "544e46317cdc421885fe6fe9efea38d6ecccd65d4dff58e4c433345352b6065ce93ae72ec27bd92d80846d43f8"
 }
