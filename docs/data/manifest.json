@@ -2,102 +2,102 @@
  "v": 1,
  "salt": "dcc2c72c7cebe8b9776eef3ec54451dc",
  "iter": 200000,
- "built": "2026-11-02T11:40:10Z",
+ "built": "2026-11-02T11:47:58Z",
  "files": [
   {
    "name": "2012.bin",
    "year": 2012,
-   "bytes": 3063,
+   "bytes": 12811,
    "days": 111
   },
   {
    "name": "2013.bin",
    "year": 2013,
-   "bytes": 87199,
-   "days": 354
+   "bytes": 104513,
+   "days": 356
   },
   {
    "name": "2014.bin",
    "year": 2014,
-   "bytes": 126120,
+   "bytes": 174489,
    "days": 363
   },
   {
    "name": "2015.bin",
    "year": 2015,
-   "bytes": 171782,
+   "bytes": 205632,
    "days": 365
   },
   {
    "name": "2016.bin",
    "year": 2016,
-   "bytes": 178038,
+   "bytes": 184337,
    "days": 365
   },
   {
    "name": "2017.bin",
    "year": 2017,
-   "bytes": 171371,
+   "bytes": 174417,
    "days": 358
   },
   {
    "name": "2018.bin",
    "year": 2018,
-   "bytes": 160324,
+   "bytes": 167503,
    "days": 363
   },
   {
    "name": "2019.bin",
    "year": 2019,
-   "bytes": 180237,
+   "bytes": 187123,
    "days": 365
   },
   {
    "name": "2020.bin",
    "year": 2020,
-   "bytes": 136331,
+   "bytes": 143435,
    "days": 366
   },
   {
    "name": "2021.bin",
    "year": 2021,
-   "bytes": 143095,
+   "bytes": 146318,
    "days": 365
   },
   {
    "name": "2022.bin",
    "year": 2022,
-   "bytes": 174612,
+   "bytes": 179366,
    "days": 365
   },
   {
    "name": "2023.bin",
    "year": 2023,
-   "bytes": 189828,
+   "bytes": 195692,
    "days": 365
   },
   {
    "name": "2024.bin",
    "year": 2024,
-   "bytes": 192966,
+   "bytes": 196277,
    "days": 366
   },
   {
    "name": "2025.bin",
    "year": 2025,
-   "bytes": 162689,
+   "bytes": 169754,
    "days": 365
   },
   {
    "name": "2026.bin",
    "year": 2026,
-   "bytes": 151071,
+   "bytes": 159014,
    "days": 306
   }
  ],
  "index": {
   "name": "index.bin",
-  "bytes": 380284
+  "bytes": 401947
  },
- "check": "544e463147462035d7973e8459bfe9cf7c713c42d9b6f87d304a660d3cc39878da92d1e14a97264d32badf3475"
+ "check": "544e463152b1a8ee46987ccfe4cf36e93e57ab130443f4c16b9601158bd1233aa29ab3675881532a8d445cc563"
 }

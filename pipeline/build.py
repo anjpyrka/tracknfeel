@@ -216,6 +216,8 @@ def split_across_midnight(d0, m0, d1, m1):
     yield d1, 0.0, m1
 
 # ----------------------------------------------------------- Timeline.json
+TZ_BY_DATE = {}   # local date -> UTC offset in minutes, learned from Timeline timestamps
+
 def ingest_timeline(path):
     log("timeline:", os.path.basename(path))
     with open(path, encoding="utf-8") as f:
@@ -226,9 +228,10 @@ def ingest_timeline(path):
     n_v = n_a = n_p = 0
     for s in segs:
         try:
-            d0, m0, e0, _ = parse_ts(s["startTime"]); d1, m1, e1, _ = parse_ts(s["endTime"])
+            d0, m0, e0, off0 = parse_ts(s["startTime"]); d1, m1, e1, _ = parse_ts(s["endTime"])
         except Exception:
             continue
+        TZ_BY_DATE[d0] = off0
         if "visit" in s:
             tc = s["visit"].get("topCandidate", {})
             loc = tc.get("placeLocation", {}).get("latLng")
@@ -345,6 +348,110 @@ def ingest_gpx(path, tz_offset_guess):
                 day(dd).visits.append([lst[i][2], lst[j][2], lat, lng, key, "UNKNOWN", "G"])
                 note_place(key, lat, lng, None, lst[j][2] - lst[i][2])
             i = j + 1
+
+# -------------------------------------------------------------- strava
+STRAVA_TYPES = {"Ride": "CYCLING", "E-Bike Ride": "CYCLING", "Gravel Ride": "CYCLING", "Mountain Bike Ride": "CYCLING", "Virtual Ride": None,
+                "Run": "RUNNING", "Trail Run": "RUNNING", "Virtual Run": None, "Walk": "WALKING", "Hike": "HIKING",
+                "Alpine Ski": "SKIING", "Nordic Ski": "SKIING", "Backcountry Ski": "SKIING", "Snowboard": "SKIING",
+                "Ice Skate": "ICE_SKATING", "Inline Skate": "ICE_SKATING", "Kayaking": "KAYAKING", "Canoe": "KAYAKING", "Rowing": "BOATING",
+                "Swim": "SWIMMING", "Sail": "SAILING", "Windsurf": "SAILING", "Kitesurf": "SAILING"}
+
+def _points_from_gpx_bytes(raw):
+    root = ET.fromstring(raw); ns = root.tag.split("}")[0] + "}" if "}" in root.tag else ""
+    out = []
+    for pt in root.iter(ns + "trkpt"):
+        t = pt.find(ns + "time")
+        if t is None or not t.text: continue
+        try: _, _, ep, _ = parse_ts(t.text.strip())
+        except Exception: continue
+        out.append((ep, float(pt.get("lat")), float(pt.get("lon"))))
+    return out
+
+def _points_from_tcx_bytes(raw):
+    root = ET.fromstring(raw); ns = root.tag.split("}")[0] + "}" if "}" in root.tag else ""
+    out = []
+    for tp in root.iter(ns + "Trackpoint"):
+        t = tp.find(ns + "Time"); pos = tp.find(ns + "Position")
+        if t is None or pos is None or not t.text: continue
+        try: _, _, ep, _ = parse_ts(t.text.strip())
+        except Exception: continue
+        la = pos.find(ns + "LatitudeDegrees"); lo = pos.find(ns + "LongitudeDegrees")
+        if la is None or lo is None: continue
+        out.append((ep, float(la.text), float(lo.text)))
+    return out
+
+def _points_from_fit_bytes(raw):
+    try:
+        import fitparse
+    except ImportError:
+        return None
+    out = []
+    for rec in fitparse.FitFile(io.BytesIO(raw)).get_messages("record"):
+        v = {f.name: f.value for f in rec.fields}
+        if v.get("position_lat") is None or v.get("position_long") is None or v.get("timestamp") is None: continue
+        ep = v["timestamp"].replace(tzinfo=datetime.timezone.utc).timestamp()
+        out.append((ep, v["position_lat"] * 180 / 2**31, v["position_long"] * 180 / 2**31))
+    return out
+
+def add_track_points(pts, src, act_type=None):
+    """Split UTC points into local days and tracks (gap > 20 min); optionally add a move of act_type per track."""
+    pts.sort()
+    bydate = defaultdict(list)
+    for ep, lat, lon in pts:
+        utc = datetime.datetime.utcfromtimestamp(ep)
+        off = TZ_BY_DATE.get(utc.strftime("%Y-%m-%d"))
+        if off is None:
+            off = int(round(lon / 15.0)) * 60
+        local = utc + datetime.timedelta(minutes=off)
+        bydate[local.strftime("%Y-%m-%d")].append((lat, lon, local.hour * 60 + local.minute + local.second / 60.0))
+    for dd, lst in bydate.items():
+        segs, cur = [], [lst[0]]
+        for p in lst[1:]:
+            if p[2] - cur[-1][2] > 20:
+                segs.append(cur); cur = [p]
+            else:
+                cur.append(p)
+        segs.append(cur)
+        D = day(dd)
+        for seg in segs:
+            if len(seg) < 2: continue
+            seg = [q for i, q in enumerate(seg) if i % max(1, len(seg) // 2500) == 0] + ([seg[-1]] if len(seg) > 2500 else [])
+            D.tracks.append([seg[0][2], seg[-1][2], seg, src])
+            if act_type:
+                dist = sum(haversine(seg[i][0], seg[i][1], seg[i + 1][0], seg[i + 1][1]) for i in range(len(seg) - 1))
+                D.moves.append([seg[0][2], seg[-1][2], act_type, dist, src])
+        D.sources.add(src)
+
+def ingest_strava(zpath):
+    """Strava bulk export (export_*.zip): every activity's own GPS file becomes a track + move with its sport type."""
+    import csv, zipfile
+    n = skipped = nofit = 0
+    with zipfile.ZipFile(zpath) as z:
+        names = set(z.namelist())
+        rows = list(csv.DictReader(io.TextIOWrapper(z.open("activities.csv"), encoding="utf-8")))
+        for r in rows:
+            fn = r.get("Filename") or ""
+            if not fn or fn not in names:
+                skipped += 1; continue
+            typ = STRAVA_TYPES.get(r.get("Activity Type", ""), "UNKNOWN_ACTIVITY_TYPE")
+            if typ is None:
+                continue                                  # virtual rides etc. have no real position
+            raw = z.read(fn)
+            if fn.endswith(".gz"):
+                raw = gzip.decompress(raw); fn = fn[:-3]
+            raw = raw.lstrip()                            # Strava TCX files start with a newline, which XML parsers reject
+            try:
+                if fn.endswith(".gpx"): pts = _points_from_gpx_bytes(raw)
+                elif fn.endswith(".tcx"): pts = _points_from_tcx_bytes(raw)
+                elif fn.endswith(".fit"):
+                    pts = _points_from_fit_bytes(raw)
+                    if pts is None: nofit += 1; continue
+                else: continue
+            except Exception as e:
+                log("  strava: cannot parse", fn, e); continue
+            if len(pts) >= 2:
+                add_track_points(pts, "S", typ); n += 1
+    log(f"  strava: {n} activities with GPS from {os.path.basename(zpath)} ({skipped} without a file" + (f", {nofit} .fit files need 'pip install fitparse'" if nofit else "") + ")")
 
 # -------------------------------------------------------- reconstructed
 def ingest_reconstructed(path):
@@ -528,6 +635,7 @@ ACT_SHORT = {
     "IN_BUS": "bus", "IN_TRAIN": "train", "IN_SUBWAY": "metro", "IN_TRAM": "tram", "FLYING": "flight",
     "MOTORCYCLING": "moto", "IN_FERRY": "ferry", "SAILING": "boat", "SKIING": "ski", "STILL": "still",
     "UNKNOWN_ACTIVITY_TYPE": "?", "IN_TAXI": "taxi", "HIKING": "hike", "BOATING": "boat", "KAYAKING": "boat",
+    "ICE_SKATING": "skate", "SWIMMING": "swim",
 }
 
 def main():
@@ -556,10 +664,12 @@ def main():
     for dd, D in days.items():
         if D is None: continue
     # build a date->offset map by re-reading offsets is expensive; approximate with longitude of day centroid later
-    gpx_files = sorted(glob.glob(os.path.join(INBOX, "**", "*.gpx"), recursive=True))
+    gpx_files = sorted(p for p in glob.glob(os.path.join(INBOX, "**", "*.gpx"), recursive=True) if os.sep + "strava" + os.sep not in p)
     for p in gpx_files:
         ingest_gpx(p, tz_guess)
     log(f"  gpx files: {len(gpx_files)}")
+    for zp in sorted(glob.glob(os.path.join(INBOX, "strava", "export_*.zip"))):
+        ingest_strava(zp)
     pi = os.path.join(INBOX, "photos", "photo_index.json"); cp = os.path.join(INBOX, "cameras.json")
     if os.path.exists(pi):
         cams = json.load(open(cp, encoding="utf-8")) if os.path.exists(cp) else []
@@ -605,6 +715,13 @@ def main():
             if not dup:
                 vis.append(v)
         D.visits = vis
+        # a Strava recording beats Timeline's coarse version of the same outing
+        smoves = [m for m in D.moves if m[4] == "S"]
+        if smoves:
+            def covered(a, b):
+                return any(min(b, m[1]) - max(a, m[0]) > 0.5 * max(1.0, b - a) for m in smoves)
+            D.moves = [m for m in D.moves if m[4] == "S" or not covered(m[0], m[1])]
+            D.tracks = [t for t in D.tracks if t[3] != "T" or not covered(t[0], t[1])]
         # dominant city/country by visit minutes, else by track points
         wt = Counter()
         for v in D.visits:
@@ -684,6 +801,9 @@ def main():
             label, kind = auto[key], 2; n_auto += 1
         places[key] = [round(m["lat"], 5), round(m["lng"], 5), int(m["min"]), m["n"], sem, label, city_ref(m["lat"], m["lng"]), kind]
     log(f"  places: {len(labels)} manual labels, {n_auto} roles inferred from visit patterns")
+    # list for pipeline/osm_names.html (names from OpenStreetMap, run in your own browser)
+    todo = [[k, p[0], p[1]] for k, p in places.items() if p[7] != 1 and not labels.get(k)]
+    json.dump(todo, open(os.path.join(INBOX, "places_todo.json"), "w"), separators=(",", ":"))
 
     # 3. write
     os.makedirs(OUT, exist_ok=True)

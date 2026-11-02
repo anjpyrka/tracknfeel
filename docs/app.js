@@ -10,8 +10,8 @@ const STYLE_LIGHT = "https://tiles.openfreemap.org/styles/positron";
 const STYLE_DARK = "https://tiles.openfreemap.org/styles/dark";
 const CITY_COLORS = ["#3B6FB6","#D2672A","#4F9D69","#B23A8D","#E0B51F","#6D4BB8","#1FA3A3","#C23B3B","#8C7A2A","#D98AB8","#4A8FD0","#7A5230"];
 const OTHER_COLOR = "#A8A49B";
-const MODE_LABEL = { car:"by car", walk:"on foot", run:"running", bike:"by bike", bus:"by bus", train:"by train", metro:"by metro", tram:"by tram", flight:"flying", moto:"by motorbike", ferry:"by ferry", boat:"by boat", ski:"skiing", taxi:"by taxi", hike:"hiking", "?":"moving", still:"still" };
-const MODE_COLOR = { walk:"#4F9D69", run:"#4F9D69", hike:"#4F9D69", bike:"#1FA3A3", flight:"#B23A8D", train:"#6D4BB8", metro:"#6D4BB8", tram:"#6D4BB8", bus:"#6D4BB8", ferry:"#3B6FB6", boat:"#3B6FB6" };
+const MODE_LABEL = { car:"by car", walk:"on foot", run:"running", bike:"by bike", bus:"by bus", train:"by train", metro:"by metro", tram:"by tram", flight:"flying", moto:"by motorbike", ferry:"by ferry", boat:"by boat", ski:"skiing", taxi:"by taxi", hike:"hiking", skate:"skating", swim:"swimming", "?":"moving", still:"still" };
+const MODE_COLOR = { walk:"#4F9D69", run:"#4F9D69", hike:"#4F9D69", bike:"#1FA3A3", flight:"#B23A8D", train:"#6D4BB8", metro:"#6D4BB8", tram:"#6D4BB8", bus:"#6D4BB8", ferry:"#3B6FB6", boat:"#3B6FB6", ski:"#2F7FD1", skate:"#2F7FD1", swim:"#2F7FD1" };
 
 const S = {
   key: null, manifest: null, idx: null, years: new Map(), loading: new Map(),
@@ -329,17 +329,17 @@ async function renderDay(fit) {
   const day = yj.days[d]; if (!day) { body.innerHTML += "<p>No data for this day.</p>"; return; }
   const touched = (day.ct || []).map(cityName).filter((v, i, a) => a.indexOf(v) === i);
   const cc = [...new Set((day.ct || []).map(cityCC))].map(countryName);
-  const recon = day.s.includes("R") || day.s.includes("P"), gps = day.s.includes("G");
+  const recon = day.s.includes("R") || day.s.includes("P"), gps = day.s.includes("G"), strava = day.s.includes("S");
   const items = [...day.v.map(v => ({ t: v[0], kind: "visit", v })), ...day.m.map(m => ({ t: m[0], kind: "move", m }))].sort((a, b) => a.t - b.t);
   let html = `<div class="dow">${fmtDate(d, { weekday: "long" })}</div>
     <h2>${fmtDate(d, { day: "numeric", month: "long", year: "numeric" })}${recon ? '<span class="chip">reconstructed</span>' : ""}</h2>
-    <p class="sub"><b>${esc(touched.join(", ") || cityName(day.c))}</b>${cc.length ? ", " + esc(cc.join(", ")) : ""} · ${km(day.km)} km${gps ? " · GPS log" : ""}</p>`;
+    <p class="sub"><b>${esc(touched.join(", ") || cityName(day.c))}</b>${cc.length ? ", " + esc(cc.join(", ")) : ""} · ${km(day.km)} km${gps ? " · GPS log" : ""}${strava ? " · Strava" : ""}</p>`;
   if (day.n) html += `<p class="hint">${day.n.map(n => `${esc(n.label)} <small>(${esc(n.source)}, ${esc(n.confidence)} confidence)</small>`).join("<br>")}</p>`;
   html += `<ol class="tl">` + items.map(it => {
     if (it.kind === "visit") {
       const v = it.v; return `<li class="visit ${v[6] === "R" || v[6] === "P" ? "recon" : ""}" data-ll="${v[2]},${v[3]}"><time>${hm(v[0])}</time><span class="dot"></span><div class="tl-name${(S.idx.places[v[4]] || [])[7] === 2 ? " guess" : ""}">${esc(placeName(v, day))}</div><div class="tl-meta">${dur(v[1] - v[0])}${v[1] >= 1440 ? ", overnight" : ""}</div></li>`;
     }
-    const m = it.m; return `<li class="move"><time>${hm(m[0])}</time><span class="dot"></span>${esc(MODE_LABEL[m[2]] || m[2])}, ${km(m[3] / 1000)} km, ${dur(m[1] - m[0])}</li>`;
+    const m = it.m; return `<li class="move"><time>${hm(m[0])}</time><span class="dot"></span>${esc(MODE_LABEL[m[2]] || m[2])}, ${km(m[3] / 1000)} km, ${dur(m[1] - m[0])}${m[4] === "S" ? ' <span class="chip">Strava</span>' : ""}</li>`;
   }).join("") + `</ol>`;
   if (!items.length) html += `<p class="hint">Only a track was recorded on this day.</p>`;
   body.innerHTML = html;

@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>tracknfeel · name places from OpenStreetMap</title>
+<style>
+body{font:15px/1.5 system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;color:#222}
+button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid #888;background:#fafafa;cursor:pointer}
+pre{background:#f4f4f4;padding:10px;border-radius:8px;max-height:300px;overflow:auto;font-size:12px}
+small{color:#666}
+</style>
+<h1>Name places from OpenStreetMap</h1>
+<p>Open <b>inbox/places_todo.json</b> (written by <code>build.py</code>), press <b>Run</b>. Your browser asks
+<a href="https://overpass-api.de">overpass-api.de</a> for the nearest named thing within 60 m of each place
+(about 2,500 places → ~20 requests, 1–2 minutes). When done, save the download as <b>inbox/osm_places.json</b>
+and run <code>build.py</code> again. Manual names in <code>labels.json</code> always win.</p>
+<p><small>Privacy note: this sends the coordinates of your frequent places to the Overpass server, in batches of 120.
+Nothing else leaves your browser. Don't run it if that is not OK for you.</small></p>
+<p><input type="file" id="f" accept=".json"> <button id="run" disabled>Run</button></p>
+<p id="status"></p>
+<pre id="log"></pre>
+<script>
+let todo = [];
+const $ = s => document.querySelector(s), log = m => { $("#log").textContent += m + "\n"; };
+$("#f").onchange = async e => { todo = JSON.parse(await e.target.files[0].text()); $("#status").textContent = `${todo.length} places loaded`; $("#run").disabled = false; };
+const hav = (a, b, c, d) => { const p = Math.PI / 180; return 12742000 * Math.asin(Math.sqrt(Math.sin((c - a) * p / 2) ** 2 + Math.cos(a * p) * Math.cos(c * p) * Math.sin((d - b) * p / 2) ** 2)); };
+const KEYS = ["amenity", "shop", "tourism", "leisure", "office", "public_transport", "railway", "aeroway", "sport", "healthcare", "craft", "club", "historic", "building"];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+$("#run").onclick = async () => {
+  $("#run").disabled = true;
+  const best = {};
+  for (let s = 0; s < todo.length; s += 120) {
+    const chunk = todo.slice(s, s + 120);
+    const q = "[out:json][timeout:90];(" + chunk.map(([k, la, lo]) => `nwr(around:60,${la},${lo})[name];`).join("") + ");out center tags;";
+    let data = null;
+    for (let t = 0; t < 4 && !data; t++) {
+      try {
+        const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q) });
+        if (r.ok) data = await r.json(); else { log(`batch ${s}: HTTP ${r.status}, retrying`); await sleep(20000 * (t + 1)); }
+      } catch (e) { log(`batch ${s}: ${e}`); await sleep(20000 * (t + 1)); }
+    }
+    if (!data) { log(`batch ${s}: gave up`); continue; }
+    for (const el of data.elements) {
+      const la = el.lat ?? el.center?.lat, lo = el.lon ?? el.center?.lon; if (la == null) continue;
+      const tg = el.tags || {}; let cat = "";
+      for (const k of KEYS) if (tg[k] && tg[k] !== "yes") { cat = k; break; }
+      const pri = cat === "building" ? 2 : (cat === "railway" || cat === "public_transport") ? 1 : cat ? 0 : 3;
+      for (const [k, pla, plo] of chunk) {
+        const d = hav(pla, plo, la, lo); if (d > 60) continue;
+        const score = d + pri * 40;
+        if (!best[k] || score < best[k].score) best[k] = { name: tg.name, score, d: Math.round(d), cat: cat ? `${cat}=${tg[cat]}` : "" };
+      }
+    }
+    $("#status").textContent = `${Math.min(s + 120, todo.length)} / ${todo.length} queried, ${Object.keys(best).length} named`;
+    await sleep(3000);
+  }
+  const out = {}; for (const [k, v] of Object.entries(best)) out[k] = v.name;
+  const blob = new Blob([JSON.stringify(out, null, 1)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "osm_places.json"; a.click();
+  log(JSON.stringify(Object.fromEntries(Object.entries(best).slice(0, 40).map(([k, v]) => [k, `${v.name} (${v.cat}, ${v.d} m)`])), null, 1));
+  $("#status").textContent += " — done, osm_places.json downloaded";
+};
+</script>

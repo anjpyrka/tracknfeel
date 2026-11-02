@@ -1,0 +1,54 @@
+name: Rebuild timeline data
+
+# Zero-touch updates: pulls the inbox and the GPSLogger folder from Google Drive, rebuilds the
+# encrypted bundles and pushes docs/data. GitHub Pages then redeploys on its own.
+# One-time setup (repository → Settings → Secrets and variables → Actions):
+#   TRACKNFEEL_PASSPHRASE   the viewer passphrase (same as .secret)
+#   RCLONE_GDRIVE_TOKEN     output of `rclone authorize "drive" --drive-scope drive.readonly` run on your PC
+# Drive layout: My Drive/tracknfeel/inbox/…  (same content as the local inbox, photo zips not needed)
+#               My Drive/GPSLogger for Android/*.gpx  (written by the app)
+
+on:
+  schedule:
+    - cron: "17 4 1 * *"        # 1st of every month, 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: rebuild
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get install -y -qq rclone >/dev/null
+          python3 -m pip install -q cryptography fitparse
+
+      - name: Pull inbox from Google Drive
+        env:
+          RCLONE_GDRIVE_TOKEN: ${{ secrets.RCLONE_GDRIVE_TOKEN }}
+        run: |
+          mkdir -p ~/.config/rclone inbox/gpx
+          printf '[gdrive]\ntype = drive\nscope = drive.readonly\ntoken = %s\n' "$RCLONE_GDRIVE_TOKEN" > ~/.config/rclone/rclone.conf
+          rclone copy "gdrive:tracknfeel/inbox" inbox --exclude "photos/*.zip" --exclude "**/*.zip.part" --transfers 8 --stats-one-line -v 2>&1 | tail -5
+          rclone copy "gdrive:GPSLogger for Android" inbox/gpx --include "*.gpx" --transfers 8 --stats-one-line -v 2>&1 | tail -3
+          echo "inbox: $(find inbox -type f | wc -l) files, $(du -sh inbox | cut -f1)"
+
+      - name: Build
+        env:
+          TRACKNFEEL_PASSPHRASE: ${{ secrets.TRACKNFEEL_PASSPHRASE }}
+        run: python3 pipeline/build.py
+
+      - name: Publish
+        run: |
+          git config user.name "tracknfeel bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A docs/data
+          if git diff --cached --quiet; then echo "no changes"; exit 0; fi
+          git commit -m "data: automatic rebuild $(date -u +%Y-%m-%d)"
+          git push

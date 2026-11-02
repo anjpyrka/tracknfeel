@@ -20,14 +20,38 @@ calendar, mail, photos ─▶ inbox/reconstructed.json ┘
 * `.secret` (git-ignored) holds the passphrase used for encryption. The site asks for the same
   passphrase once and can keep the derived key on the device.
 
-## Monthly ritual (about two minutes)
+## Keeping it current
 
-1. On the phone: Settings → Location → Location services → Timeline → Export Timeline data.
-   Put the file into `inbox/` (any name ending in `.json`).
-2. Copy new GPSLogger `.gpx` files from the Google Drive folder "GPSLogger for Android" into `inbox/gpx/`.
-3. Run `./update.sh` (or `python3 pipeline/build.py` and push `docs/` yourself).
+Day to day nothing is needed: GPSLogger writes a `.gpx` per day into the Google Drive folder "GPSLogger for Android",
+and the GitHub Action in `.github/workflows/update.yml` runs on the 1st of every month (or on demand from the Actions tab).
+It pulls `My Drive/tracknfeel/inbox` and the GPSLogger folder with rclone, rebuilds the encrypted bundles and pushes
+`docs/data/`; GitHub Pages redeploys by itself. So the inbox lives in Google Drive, not on a PC.
 
-Timeline exports overlap; the pipeline de-duplicates, so old exports can stay in the inbox.
+One-time setup:
+
+1. Upload the local `inbox/` folder to Google Drive as `tracknfeel/inbox` (the 15 GB of photo zips are not needed —
+   only `photos/photo_index.json`; the Strava `export_*.zip` is useful).
+2. On the PC: `winget install Rclone.Rclone`, then `rclone authorize "drive" --drive-scope drive.readonly` — a browser
+   window asks for read-only Drive access and the terminal prints a `{"access_token": …}` block.
+3. GitHub → repository → Settings → Secrets and variables → Actions → New repository secret, twice:
+   `RCLONE_GDRIVE_TOKEN` = that block, `TRACKNFEEL_PASSPHRASE` = the viewer passphrase.
+4. Actions tab → "Rebuild timeline data" → Run workflow, once, to see it go green.
+
+Optional top-ups, whenever you feel like it (every few months is plenty):
+
+- Phone → Settings → Location → Location services → Timeline → Export Timeline data → drop the file into `inbox/`
+  (Google's semantic visits are still nicer than raw GPS for "where was I"). Exports overlap; the pipeline de-duplicates.
+- Strava → Settings → My Account → Download or Delete Your Account → Request your archive → `export_*.zip` into `inbox/strava/`.
+- Then `./update.sh` locally, or just commit the inbox changes you want and let the Action build.
+
+## Place names
+
+A stop is named, in this order: `inbox/labels.json` (yours), `inbox/osm_places.json` (OpenStreetMap), then a role guessed
+from how you use the place — airport, train station, overnight stay, drop-off spot, weekly Wednesday spot, regular errand…
+(shown in italics). One-off stops are described by time and length ("Lunch stop in Gent", "Evening out in Antwerp").
+To get real OSM names, open `pipeline/osm_names.html` in your browser, load `inbox/places_todo.json`, run, and save
+the download as `inbox/osm_places.json`. This sends your frequent places' coordinates to overpass-api.de, so it is a
+deliberate, manual step.
 
 ## Reconstructed days
 
