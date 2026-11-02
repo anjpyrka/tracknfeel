@@ -425,6 +425,103 @@ def pack(obj):
     raw = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return gzip.compress(raw, 9), len(raw)
 
+# ------------------------------------------------------------ place roles from visit patterns
+WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+def infer_roles(days, all_dates, city_of, big_city_of=None):
+    """Guess what a place *is* from how it is used (Google-Timeline style), without any map data.
+    Looks at: time of day, weekday/weekend, duration, overnight stays, repetition, and the kind of
+    movement right before/after (flights -> airport, long train legs -> station)."""
+    st = {}
+    def S(key):
+        return st.setdefault(key, {"n": 0, "days": set(), "durs": [], "wd": 0, "we": 0, "nights": 0, "stays": 0,
+                                   "drop": set(), "pick": set(), "lunch": 0, "dinner": 0, "eve": 0, "morn": 0,
+                                   "dow": Counter(), "fly": 0, "train": 0, "ferry": 0, "sem": Counter(), "lat": 0, "lng": 0})
+    prev_night = {}
+    for dd in all_dates:
+        D = days[dd]
+        y, mo, da = int(dd[:4]), int(dd[5:7]), int(dd[8:10])
+        dow = datetime.date(y, mo, da).weekday()
+        moves = D.moves
+        for v in D.visits:
+            a, b, lat, lng, key, sem, src = v
+            if src == "P":
+                continue
+            s = S(key); s["lat"], s["lng"] = lat, lng
+            s["n"] += 1; s["days"].add(dd); s["sem"][sem] += 1; s["dow"][dow] += 1
+            dur = b - a; s["durs"].append(dur)
+            if dow < 5: s["wd"] += 1
+            else: s["we"] += 1
+            if b >= 1439 and a < 1380:
+                s["nights"] += 1
+                if prev_night.get(key) != _prev_day(dd): s["stays"] += 1
+                prev_night[key] = dd
+            if dow < 5 and 420 <= a <= 570 and dur <= 30: s["drop"].add(dd)
+            if dow < 5 and 870 <= a <= 1080 and dur <= 30: s["pick"].add(dd)
+            if 690 <= a <= 840 and 25 <= dur <= 150: s["lunch"] += 1
+            if 1050 <= a <= 1320 and 40 <= dur <= 240: s["dinner"] += 1
+            if a >= 1020 or b >= 1140: s["eve"] += 1
+            if a <= 600: s["morn"] += 1
+            # adjacent long-distance legs
+            for m in moves:
+                gap_after = m[0] - b; gap_before = a - m[1]
+                near = (-5 <= gap_after <= 90) or (-5 <= gap_before <= 90)
+                if not near:
+                    continue
+                if m[2] == "FLYING" or (m[2] in ("UNKNOWN_ACTIVITY_TYPE",) and m[3] > 300_000): s["fly"] += 1
+                elif m[2] == "IN_TRAIN" and m[3] > 40_000: s["train"] += 1
+                elif m[2] == "IN_FERRY": s["ferry"] += 1
+    out = {}
+    for key, s in st.items():
+        sem = s["sem"].most_common(1)[0][0] if s["sem"] else ""
+        if sem in ("HOME", "INFERRED_HOME", "WORK", "INFERRED_WORK", "PHOTO"):
+            continue                                    # the viewer already names these
+        nd = len(s["days"]); n = s["n"]
+        durs = sorted(s["durs"]); med = durs[len(durs) // 2]
+        city = city_of(s["lat"], s["lng"])
+        hub = (big_city_of or city_of)(s["lat"], s["lng"])
+        wdshare = s["wd"] / max(1, n)
+        label = ""
+        if s["fly"] >= 2 and s["fly"] >= 0.5 * n:
+            label = f"Airport ({hub})" if hub else "Airport"
+        elif s["train"] >= 3 and s["train"] >= 0.5 * n:
+            label = f"Train station ({hub})" if hub else "Train station"
+        elif s["ferry"] >= 2 and s["ferry"] >= 0.5 * n:
+            label = f"Ferry terminal ({hub})" if hub else "Ferry terminal"
+        elif s["nights"] >= 14 and s["stays"] >= 3:
+            label = f"Second base in {city}" if city else "Second base"
+        elif s["nights"] >= 1 and s["nights"] >= 0.3 * nd:
+            label = f"Overnight stay in {city}" if city else "Overnight stay"
+        elif len(s["drop"]) >= 10 and wdshare >= 0.85 and med <= 30:
+            label = "Drop-off / pick-up spot (weekday mornings)" if len(s["pick"]) >= 4 else "Weekday morning drop-off"
+        elif nd >= 15 and wdshare >= 0.8 and med >= 180 and s["morn"] >= 0.6 * n:
+            label = f"Likely workplace in {city}" if city else "Likely workplace"
+        elif nd >= 6:
+            top_dow, top_n = s["dow"].most_common(1)[0]
+            if top_n >= 0.6 * n and n >= 6:
+                label = f"Weekly {WEEKDAYS[top_dow]} spot"
+            elif med <= 40:
+                label = "Regular errand (shop, pickup…)" if s["eve"] + s["we"] >= 0.5 * n else "Regular quick stop"
+            elif s["lunch"] >= 0.6 * n:
+                label = "Regular lunch place"
+            elif s["dinner"] >= 0.6 * n:
+                label = "Regular dinner place"
+            elif med >= 180:
+                label = "Friends, family or club? (regular long visits)"
+            elif s["eve"] >= 0.6 * n:
+                label = "Regular evening spot (sport, class or friends)"
+            elif s["we"] >= 0.7 * n:
+                label = "Weekend regular"
+            else:
+                label = f"Regular spot ({nd} days)"
+        if label:
+            out[key] = label
+    return out
+
+def _prev_day(dd):
+    d = datetime.date(int(dd[:4]), int(dd[5:7]), int(dd[8:10])) - datetime.timedelta(days=1)
+    return d.isoformat()
+
 # ------------------------------------------------------------------ main
 ACT_SHORT = {
     "IN_PASSENGER_VEHICLE": "car", "IN_VEHICLE": "car", "WALKING": "walk", "RUNNING": "run", "CYCLING": "bike",
@@ -477,16 +574,17 @@ def main():
     # 2. derive
     log("geocoding")
     cities = CityIndex(os.path.join(PIPE, "cities.csv.gz"))
-    city_ids = {}      # geonames idx -> compact idx
-    city_table = []    # [name, admin1, cc, lat, lon]
+    # City references are the GeoNames row index itself (stable across builds), so a year file
+    # from one build can never point at the wrong row of another build's city table.
+    city_table = {}    # gi -> [name, admin1, cc, lat, lon, pop]
     def city_ref(lat, lng):
         gi = cities.nearest(lat, lng)
         if gi is None:
             return -1
-        if gi not in city_ids:
+        if gi not in city_table:
             c = cities.cities[gi]
-            city_ids[gi] = len(city_table); city_table.append([c[2], c[3], c[4], c[0], c[1], c[5]])
-        return city_ids[gi]
+            city_table[gi] = [c[2], c[3], c[4], c[0], c[1], c[5]]
+        return gi
 
     years = defaultdict(dict)
     index_days = {}
@@ -554,13 +652,38 @@ def main():
         }
         index_days[dd] = [cref, round(km), src, touched[:3]]
 
-    # places table (top by minutes) with labels
+    # places table (top by minutes) with labels: manual labels.json > OSM names (osm_places.json) > pattern-inferred role
+    osm = {}
+    op = os.path.join(INBOX, "osm_places.json")
+    if os.path.exists(op):
+        osm = json.load(open(op, encoding="utf-8"))
+        log(f"  osm_places.json: {len(osm)} named places")
+    def big_city_of(la, ln):
+        # airports and main stations belong to the metropolis they serve, not the suburb they sit in
+        best = None
+        for c in cities.cities:
+            if c[5] >= 100_000 and abs(c[0] - la) < 0.5 and abs(c[1] - ln) < 0.8 and haversine(la, ln, c[0], c[1]) <= 45_000:
+                if best is None or c[5] > best[5]:
+                    best = c
+        if best is not None:
+            return best[2]
+        r = city_ref(la, ln)
+        return city_table[r][0] if r >= 0 else ""
+    auto = infer_roles(days, all_dates, lambda la, ln: city_table[city_ref(la, ln)][0] if city_ref(la, ln) >= 0 else "", big_city_of)
     top_places = sorted(place_meta.items(), key=lambda kv: -kv[1]["min"])[:3000]
     places = {}
+    n_auto = 0
     for key, m in top_places:
         sem = m["sem"].most_common(1)[0][0] if m["sem"] else ""
-        label = labels.get(key) or labels.get(f"{m['lat']:.4f},{m['lng']:.4f}") or ""
-        places[key] = [round(m["lat"], 5), round(m["lng"], 5), int(m["min"]), m["n"], sem, label, city_ref(m["lat"], m["lng"])]
+        ll = f"{m['lat']:.4f},{m['lng']:.4f}"
+        label = labels.get(key) or labels.get(ll) or ""
+        kind = 0                      # 0 manual/none, 1 OSM name, 2 inferred from patterns
+        if not label and (osm.get(key) or osm.get(ll)):
+            label, kind = (osm.get(key) or osm.get(ll)), 1
+        if not label and auto.get(key):
+            label, kind = auto[key], 2; n_auto += 1
+        places[key] = [round(m["lat"], 5), round(m["lng"], 5), int(m["min"]), m["n"], sem, label, city_ref(m["lat"], m["lng"]), kind]
+    log(f"  places: {len(labels)} manual labels, {n_auto} roles inferred from visit patterns")
 
     # 3. write
     os.makedirs(OUT, exist_ok=True)

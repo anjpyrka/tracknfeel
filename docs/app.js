@@ -228,6 +228,15 @@ function placeName(v, day) {
   if (sem === "PHOTO") return "Photo taken here";
   const city = p && p[6] >= 0 ? cityName(p[6]) : cityName(day.c);
   if (v[6] === "R") return `${city} (reconstructed)`;
+  // one-off stop: describe it by when and how long, Timeline-style
+  const a = v[0], b = v[1], d = b - a;
+  if (b >= 1439 && a < 1380) return `Overnight stay in ${city}`;
+  if (a < 1 && b >= 1439) return `All day in ${city}`;
+  if (d <= 20) return `Quick stop in ${city}`;
+  if (a >= 690 && a <= 840 && d <= 150) return `Lunch stop in ${city}`;
+  if (a >= 1050 && a <= 1320 && d <= 240) return `Evening out in ${city}`;
+  if (d >= 300) return `${a < 720 ? "Day" : "Afternoon"} in ${city}`;
+  if (d >= 90) return `A few hours in ${city}`;
   return `Stop in ${city}`;
 }
 
@@ -328,7 +337,7 @@ async function renderDay(fit) {
   if (day.n) html += `<p class="hint">${day.n.map(n => `${esc(n.label)} <small>(${esc(n.source)}, ${esc(n.confidence)} confidence)</small>`).join("<br>")}</p>`;
   html += `<ol class="tl">` + items.map(it => {
     if (it.kind === "visit") {
-      const v = it.v; return `<li class="visit ${v[6] === "R" || v[6] === "P" ? "recon" : ""}" data-ll="${v[2]},${v[3]}"><time>${hm(v[0])}</time><span class="dot"></span><div class="tl-name">${esc(placeName(v, day))}</div><div class="tl-meta">${dur(v[1] - v[0])}${v[1] >= 1440 ? ", overnight" : ""}</div></li>`;
+      const v = it.v; return `<li class="visit ${v[6] === "R" || v[6] === "P" ? "recon" : ""}" data-ll="${v[2]},${v[3]}"><time>${hm(v[0])}</time><span class="dot"></span><div class="tl-name${(S.idx.places[v[4]] || [])[7] === 2 ? " guess" : ""}">${esc(placeName(v, day))}</div><div class="tl-meta">${dur(v[1] - v[0])}${v[1] >= 1440 ? ", overnight" : ""}</div></li>`;
     }
     const m = it.m; return `<li class="move"><time>${hm(m[0])}</time><span class="dot"></span>${esc(MODE_LABEL[m[2]] || m[2])}, ${km(m[3] / 1000)} km, ${dur(m[1] - m[0])}</li>`;
   }).join("") + `</ol>`;
@@ -423,10 +432,10 @@ function renderLife() {
 function renderPlaces() {
   const body = $("#panelBody");
   const list = Object.entries(S.idx.places).sort((a, b) => b[1][2] - a[1][2]).slice(0, 120);
-  let html = `<h2>Places</h2><p class="sub">Ranked by time spent. Names come from <span class="hint">inbox/labels.json</span>; unnamed stops show their city.</p><ul class="place-list">`;
+  let html = `<h2>Places</h2><p class="sub">Ranked by time spent. Names come from <span class="hint">inbox/labels.json</span> or OpenStreetMap; <i>italic</i> ones are guessed from how you use the place.</p><ul class="place-list">`;
   html += list.map(([k, p]) => {
     const name = p[5] || (p[4] === "HOME" || p[4] === "INFERRED_HOME" ? "Home" : p[4] === "WORK" ? "Work" : `Stop in ${cityName(p[6])}`);
-    return `<li data-ll="${p[0]},${p[1]}"><span><span class="pn">${esc(name)}</span><br><span class="pm">${esc(cityName(p[6]))}, ${esc(countryName(cityCC(p[6])))}</span></span><span class="pm">${dur(p[2])}<br>${p[3]} visits</span></li>`;
+    return `<li data-ll="${p[0]},${p[1]}"><span><span class="pn${p[7] === 2 ? " guess" : ""}">${esc(name)}</span><br><span class="pm">${esc(cityName(p[6]))}, ${esc(countryName(cityCC(p[6])))}</span></span><span class="pm">${dur(p[2])}<br>${p[3]} visits</span></li>`;
   }).join("") + `</ul>`;
   body.innerHTML = html;
   const feats = list.map(([k, p]) => ({ type: "Feature", geometry: { type: "Point", coordinates: [p[1], p[0]] }, properties: { name: p[5] || p[4] || "Stop", meta: `${dur(p[2])}, ${p[3]} visits`, mins: Math.min(600, p[2] / 60), src: "" } }));
