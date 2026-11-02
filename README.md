@@ -59,9 +59,10 @@ Optional top-ups, whenever you feel like it (every few months is plenty):
 A stop is named, in this order: `inbox/labels.json` (yours), `inbox/osm_places.json` (OpenStreetMap), then a role guessed
 from how you use the place — airport, train station, overnight stay, drop-off spot, weekly Wednesday spot, regular errand…
 (shown in italics). One-off stops are described by time and length ("Lunch stop in Gent", "Evening out in Antwerp").
-To get real OSM names, open `pipeline/osm_names.html` in your browser, load `inbox/places_todo.json`, run, and save
-the download as `inbox/osm_places.json`. This sends your frequent places' coordinates to overpass-api.de, so it is a
-deliberate, manual step.
+Real OSM names come from the monthly Action: `pipeline/osm_names.py` looks up only places that are still unnamed
+(Photon first, Nominatim at 1 request/s for the rest) and keeps `inbox/osm_places.json` in Drive, so each month only
+new places are queried. It sends the coordinates of frequent stops (no times) to those two OSM services.
+`pipeline/osm_names.html` does the same by hand in a browser via Overpass, if ever needed.
 
 ## Reconstructed days
 
