@@ -55,20 +55,30 @@ def main():
     pending = [t for t in todo if t[0] not in known]
     print(f"{len(todo)} places, {len(known)} already named, {len(pending)} to look up")
     t0 = time.time(); named = fails = 0; misses = []
-    for i, (key, lat, lng) in enumerate(pending):
-        if time.time() - t0 > BUDGET * 0.6:
-            print("photon budget reached"); break
+    from concurrent.futures import ThreadPoolExecutor
+    def look(t):
+        key, lat, lng = t
         try:
-            n = photon(lat, lng)
+            return key, lat, lng, photon(lat, lng), None
         except Exception as e:
-            fails += 1; n = None
-            if fails > 25: print("photon failing repeatedly, stopping:", e); break
-            time.sleep(2)
-        if n: known[key] = n; named += 1
-        else: misses.append((key, lat, lng))
-        if i % 100 == 99:
-            print(f"  photon {i + 1}/{len(pending)}: {named} named"); json.dump(known, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-        time.sleep(0.12)
+            return key, lat, lng, None, e
+    done = 0
+    with ThreadPoolExecutor(max_workers=4) as ex:            # Photon copes fine with a few parallel requests
+        for i in range(0, len(pending), 40):
+            if time.time() - t0 > BUDGET * 0.7:
+                print("photon budget reached"); break
+            for key, lat, lng, n, err in ex.map(look, pending[i:i + 40]):
+                done += 1
+                if err is not None:
+                    fails += 1
+                elif n:
+                    known[key] = n; named += 1
+                else:
+                    misses.append((key, lat, lng))
+            if fails > 60:
+                print("photon failing repeatedly, stopping"); break
+            if done % 200 < 40:
+                print(f"  photon {done}/{len(pending)}: {named} named"); json.dump(known, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"photon: {named} named, {len(misses)} misses")
     n2 = 0
     for key, lat, lng in misses:

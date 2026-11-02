@@ -49,7 +49,7 @@ jobs:
       - name: Name new places from OpenStreetMap
         id: names
         env:
-          OSM_BUDGET_SECONDS: "1500"
+          OSM_BUDGET_SECONDS: "2400"
         run: |
           cp inbox/osm_places.json /tmp/before.json 2>/dev/null || echo "{}" > /tmp/before.json
           python3 pipeline/osm_names.py
