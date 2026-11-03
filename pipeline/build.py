@@ -823,7 +823,8 @@ def choose_candidate(cands, role, cal_title):
         cat = f"{k}={v}"
         fit = 2 if (cat in pref or f"{k}=*" in pref) else (1 if k in GENERIC_GOOD or (k == "building" and v in GOOD_BUILDINGS) else 0)
         if role == "dropoff" and k == "shop": fit = 0
-        if k == "building" and v == "train_station": fit = max(fit, 2) if role in ("station", "") else fit
+        if (k == "building" and v == "train_station") or (k == "public_transport" and v == "station") or (k == "aeroway" and v in ("aerodrome", "terminal")):
+            fit = 3                                     # a station beats any shop inside it
         if k == "amenity" and v in ("toilets", "atm", "vending_machine", "parking", "bench", "waste_basket", "bicycle_parking", "charging_station"): fit = -1
         if k == "historic" and v == "memorial": fit = -1
         if k == "building" and v in ("yes", "apartments", "residential", "house"): fit = -1
