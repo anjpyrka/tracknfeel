@@ -711,6 +711,7 @@ def load_calendar_hints(path, days, all_dates):
             try: ev = json.loads(line)
             except Exception: continue
             st, en, t = ev.get("s", ""), ev.get("e", ""), (ev.get("t") or "").strip()
+            loc = (ev.get("l") or "").strip()
             if not t or "T" not in st or "T" not in en:
                 continue                                # all-day events say nothing about a place
             try:
@@ -719,24 +720,40 @@ def load_calendar_hints(path, days, all_dates):
                 continue
             if d0 != d1: m1 = 1440.0
             if m1 - m0 > 600: continue                   # multi-hour blocks (holidays, trips) are not a place
-            byday[d0].append((m0, m1, t, bool(ev.get("r"))))
-    hits = defaultdict(Counter); pdays = defaultdict(set)
+            byday[d0].append((m0, m1, t, loc))
+    hits = defaultdict(Counter); locs = defaultdict(Counter)
     for dd in all_dates:
         D = days[dd]
         if not byday.get(dd): continue
         for v in D.visits:
             a, b, key = v[0], v[1], v[4]
             if b - a < 10 or v[6] == "P": continue
-            for m0, m1, t, rec in byday[dd]:
+            for m0, m1, t, loc in byday[dd]:
                 ov = min(b, m1) - max(a, m0)
                 if ov >= 0.5 * min(b - a, m1 - m0) and ov >= 15:
-                    hits[key][t] += 1; pdays[key].add(dd)
+                    hits[key][t] += 1
+                    if loc: locs[key][(t, loc)] += 1
     out = {}
     for key, c in hits.items():
         t, n = c.most_common(1)[0]
         if n >= 3:
-            out[key] = (t, n)
+            cand_locs = [(cnt, l) for (tt, l), cnt in locs[key].items() if tt == t]
+            loc = max(cand_locs)[1] if cand_locs else ""
+            out[key] = (t, n, loc)
     return out
+
+def calendar_label(title, loc):
+    """A readable place name from a calendar entry: the venue in the location field if it has one,
+    else the title without booking noise ('Blocked:', 'Confirmed -', pipes)."""
+    if loc:
+        first = loc.split(",")[0]
+        first = re.sub(r"^\s*(onsite|on-site|präsenz|presence|vor ort|in person|location)\s*[:\-–|]*\s*(in|at|im|bei)?\s*", "", first, flags=re.I).strip(" -–:|?;")
+        junk = re.compile(r"^(to be defined|tbd|tba|online|zoom|teams|remote|virtual|n/?a|ausland|deutschland|inland)?$|^https?:", re.I)
+        if len(first) >= 3 and not junk.match(first) and not re.search(r"\d{2,}", first) and len(first) <= 60:
+            return first
+    t = re.sub(r"^\s*(blocked|confirmed|tentative|hold|option|reserved|booked)\s*[:\-–|]*\s*", "", title, flags=re.I)
+    t = re.sub(r"\s*\|\s*", " · ", t).strip(" ·-–:")
+    return t[:70]
 
 def choose_candidate(cands, role, cal_title):
     """Pick the OSM object that fits how the place is used; None if nothing convincing."""
@@ -941,14 +958,14 @@ def main():
         label = labels.get(key) or labels.get(ll) or ""
         kind = 0                      # 0 manual/none, 1 OSM name, 2 inferred from patterns, 3 calendar title
         role, role_label = auto.get(key, ("", ""))
-        cal_title = cal.get(key, ("", 0))[0]
+        cal_title, cal_n, cal_loc = cal.get(key, ("", 0, ""))
         if not label and key in cands:
             n = choose_candidate(cands[key], role, cal_title)
             if n: label, kind = n, 1
         if not label and key not in cands and (osm_old.get(key) or osm_old.get(ll)):
             label, kind = (osm_old.get(key) or osm_old.get(ll)), 1
-        if not label and cal_title and cal.get(key, ("", 0))[1] >= 4:
-            label, kind = cal_title, 3
+        if not label and cal_title and cal_n >= 4:
+            label, kind = calendar_label(cal_title, cal_loc), 3
         if not label and role_label:
             label, kind = role_label, 2; n_auto += 1
         places[key] = [round(m["lat"], 5), round(m["lng"], 5), int(m["min"]), m["n"], sem, label, city_ref(m["lat"], m["lng"]), kind]
