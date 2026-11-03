@@ -27,7 +27,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get install -y -qq rclone >/dev/null
-          python3 -m pip install -q cryptography fitparse
+          python3 -m pip install -q cryptography fitparse timezonefinder
 
       - name: Pull inbox from Google Drive
         env:

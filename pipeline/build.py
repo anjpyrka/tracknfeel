@@ -56,6 +56,49 @@ def parse_ts(s):
     epoch = utc.replace(tzinfo=datetime.timezone.utc).timestamp()
     return local.strftime("%Y-%m-%d"), local.hour * 60 + local.minute + local.second / 60.0, epoch, off
 
+# Google's export stamps every timestamp in the phone's *current* zone (Europe/Berlin here), so Singapore
+# 2013 or Moscow 2016 would otherwise land on the wrong local hour and often the wrong day. We re-express
+# every instant in the zone of the place it belongs to (offline lookup, cached per 0.01 degree cell).
+_TF = None
+_TZ_CACHE = {}
+def tz_name(lat, lng):
+    global _TF
+    k = (round(lat, 2), round(lng, 2))
+    if k in _TZ_CACHE:
+        return _TZ_CACHE[k]
+    if _TF is None:
+        try:
+            from timezonefinder import TimezoneFinder
+            _TF = TimezoneFinder(in_memory=True)
+        except ImportError:
+            _TF = False
+            log("  WARNING: timezonefinder not installed (pip install timezonefinder); using export offsets")
+    name = None
+    if _TF:
+        try:
+            name = _TF.timezone_at(lat=lat, lng=lng) or _TF.closest_timezone_at(lat=lat, lng=lng)
+        except Exception:
+            name = None
+    _TZ_CACHE[k] = name
+    return name
+
+_ZI_CACHE = {}
+def local_of(epoch, lat, lng, fallback=None):
+    """(local_date, minutes_from_midnight, utc_offset_minutes) of a UTC epoch at a place.
+    fallback = (date, minutes, offset) from the export's own stamp, used when no zone is known."""
+    name = tz_name(lat, lng) if lat is not None else None
+    if name:
+        from zoneinfo import ZoneInfo
+        z = _ZI_CACHE.get(name)
+        if z is None:
+            z = _ZI_CACHE[name] = ZoneInfo(name)
+        dt = datetime.datetime.fromtimestamp(epoch, z)
+        return dt.strftime("%Y-%m-%d"), dt.hour * 60 + dt.minute + dt.second / 60.0, int(dt.utcoffset().total_seconds() // 60)
+    if fallback:
+        return fallback
+    dt = datetime.datetime.utcfromtimestamp(epoch) + datetime.timedelta(minutes=int(round(lng / 15.0)) * 60)
+    return dt.strftime("%Y-%m-%d"), dt.hour * 60 + dt.minute + dt.second / 60.0, int(round(lng / 15.0)) * 60
+
 def encode_polyline(points, precision=5):
     """Google encoded polyline. points: list of (lat, lng)."""
     out = []
@@ -228,9 +271,24 @@ def ingest_timeline(path):
     n_v = n_a = n_p = 0
     for s in segs:
         try:
-            d0, m0, e0, off0 = parse_ts(s["startTime"]); d1, m1, e1, _ = parse_ts(s["endTime"])
+            d0, m0, e0, off0 = parse_ts(s["startTime"]); d1, m1, e1, off1 = parse_ts(s["endTime"])
         except Exception:
             continue
+        # anchor point of this segment, to find its local time zone
+        anchor = None
+        if "visit" in s:
+            anchor = s["visit"].get("topCandidate", {}).get("placeLocation", {}).get("latLng")
+        elif "activity" in s:
+            anchor = s["activity"].get("start", {}).get("latLng") or s["activity"].get("end", {}).get("latLng")
+        elif "timelinePath" in s and s["timelinePath"]:
+            anchor = s["timelinePath"][0].get("point")
+        if anchor:
+            try:
+                alat, alng = parse_latlng(anchor)
+                d0, m0, off0 = local_of(e0, alat, alng, (d0, m0, off0))
+                d1, m1, _ = local_of(e1, alat, alng, (d1, m1, off1))
+            except Exception:
+                pass
         TZ_BY_DATE[d0] = off0
         if "visit" in s:
             tc = s["visit"].get("topCandidate", {})
@@ -264,7 +322,8 @@ def ingest_timeline(path):
             pts = []
             for p in s["timelinePath"]:
                 try:
-                    lat, lng = parse_latlng(p["point"]); dd, mm, ep, _ = parse_ts(p["time"])
+                    lat, lng = parse_latlng(p["point"]); dd, mm, ep, off = parse_ts(p["time"])
+                    dd, mm, _ = local_of(ep, lat, lng, (dd, mm, off))
                 except Exception:
                     continue
                 pts.append((dd, lat, lng, mm))
@@ -316,12 +375,8 @@ def ingest_gpx(path, tz_offset_guess):
     # local day: GPSLogger writes UTC; shift by the day's offset guess (from Timeline data for same UTC date, else longitude)
     bydate = defaultdict(list)
     for ep, lat, lon in pts:
-        utc_date = datetime.datetime.utcfromtimestamp(ep).strftime("%Y-%m-%d")
-        off = tz_offset_guess.get(utc_date)
-        if off is None:
-            off = int(round(lon / 15.0)) * 60
-        local = datetime.datetime.utcfromtimestamp(ep) + datetime.timedelta(minutes=off)
-        bydate[local.strftime("%Y-%m-%d")].append((lat, lon, local.hour * 60 + local.minute + local.second / 60.0))
+        dd, mm, _ = local_of(ep, lat, lon)
+        bydate[dd].append((lat, lon, mm))
     for dd, lst in bydate.items():
         # break into tracks on gaps > 20 min
         cur = [lst[0]]
@@ -398,12 +453,8 @@ def add_track_points(pts, src, act_type=None):
     pts.sort()
     bydate = defaultdict(list)
     for ep, lat, lon in pts:
-        utc = datetime.datetime.utcfromtimestamp(ep)
-        off = TZ_BY_DATE.get(utc.strftime("%Y-%m-%d"))
-        if off is None:
-            off = int(round(lon / 15.0)) * 60
-        local = utc + datetime.timedelta(minutes=off)
-        bydate[local.strftime("%Y-%m-%d")].append((lat, lon, local.hour * 60 + local.minute + local.second / 60.0))
+        dd, mm, _ = local_of(ep, lat, lon)
+        bydate[dd].append((lat, lon, mm))
     for dd, lst in bydate.items():
         segs, cur = [], [lst[0]]
         for p in lst[1:]:
@@ -491,8 +542,7 @@ def ingest_photos(index_path, cameras):
         if dt and len(dt) >= 19:
             dd = dt[:10].replace(":", "-"); mins = int(dt[11:13]) * 60 + int(dt[14:16])
         elif r.get("ts"):
-            local = datetime.datetime.utcfromtimestamp(r["ts"]) + datetime.timedelta(minutes=int(round(lng / 15.0)) * 60)
-            dd = local.strftime("%Y-%m-%d"); mins = local.hour * 60 + local.minute
+            dd, mins, _ = local_of(r["ts"], lat, lng)
         else:
             continue
         n += 1
