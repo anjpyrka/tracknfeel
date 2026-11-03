@@ -26,9 +26,11 @@ def get(url, timeout=20):
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
-def photon(lat, lng):
-    """-> list of [name, osm_key, osm_value, distance_m], nearest first; [] when nothing named is near."""
-    j = get(f"https://photon.komoot.io/reverse?lat={lat}&lon={lng}&radius={RADIUS_M / 1000:.2f}&limit=12&distance_sort=true")
+def photon(lat, lng, tags=None, radius=RADIUS_M):
+    """-> list of [name, osm_key, osm_value, distance_m], nearest first; [] when nothing named is near.
+    tags: optional Photon osm_tag filters ("amenity:kindergarten", "leisure") for a targeted second look."""
+    extra = "".join(f"&osm_tag={urllib.parse.quote(t)}" for t in (tags or []))
+    j = get(f"https://photon.komoot.io/reverse?lat={lat}&lon={lng}&radius={radius / 1000:.2f}&limit=12&distance_sort=true{extra}")
     out = []
     for f in j.get("features", []):
         p = f.get("properties", {}); name = p.get("name")
@@ -36,7 +38,7 @@ def photon(lat, lng):
             continue
         lo, la = f["geometry"]["coordinates"]
         d = hav(lat, lng, la, lo)
-        if d <= RADIUS_M:
+        if d <= radius:
             out.append([name, p.get("osm_key") or "", p.get("osm_value") or "", int(d)])
     out.sort(key=lambda c: c[3])
     return out
@@ -55,10 +57,36 @@ def main():
     todo = json.load(open(TODO, encoding="utf-8"))
     cand = json.load(open(OUT, encoding="utf-8")) if os.path.exists(OUT) else {}
     pending = [t for t in todo if t[0] not in cand]          # todo is ordered by time spent, most important first
-    print(f"{len(todo)} places, {len(cand)} already looked up, {len(pending)} to do")
+    tdone_path = os.path.join(INBOX, "osm_targeted_done.json")
+    tdone = set(json.load(open(tdone_path))) if os.path.exists(tdone_path) else set()
+    targeted = [t for t in todo if len(t) > 3 and t[3] and t[0] not in tdone]
+    print(f"{len(todo)} places, {len(cand)} already looked up, {len(pending)} to do, {len(targeted)} targeted looks pending")
     t0 = time.time(); fails = 0; done = 0; hits = 0; misses = []
     save = lambda: json.dump(cand, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     from concurrent.futures import ThreadPoolExecutor
+    t_hits = 0
+    # targeted look first (most-visited places first): the kindergarten in the courtyard, the sports hall behind the kiosk
+    def look2(t):
+        key, lat, lng, tags = t[0], t[1], t[2], t[3]
+        try:
+            return key, photon(lat, lng, tags[:6], 220), None
+        except Exception as e:
+            return key, None, e
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        for i in range(0, len(targeted), 40):
+            if time.time() - t0 > BUDGET * 0.4:
+                print("targeted budget reached"); break
+            for key, c, err in ex.map(look2, targeted[i:i + 40]):
+                if err is not None:
+                    fails += 1; continue
+                tdone.add(key)
+                if c:
+                    have = {x[0] for x in cand.get(key, [])}
+                    cand[key] = sorted(cand.get(key, []) + [x for x in c if x[0] not in have], key=lambda x: x[3]); t_hits += 1
+            if i % 200 == 0:
+                save(); json.dump(sorted(tdone), open(tdone_path, "w"))
+    json.dump(sorted(tdone), open(tdone_path, "w"))
+    print(f"targeted: {t_hits} places gained a role-matching candidate")
     def look(t):
         key, lat, lng = t
         try:
@@ -67,7 +95,7 @@ def main():
             return key, lat, lng, None, e
     with ThreadPoolExecutor(max_workers=2) as ex:
         for i in range(0, len(pending), 40):
-            if time.time() - t0 > BUDGET * 0.7:
+            if time.time() - t0 > BUDGET * 0.8:
                 print("photon budget reached"); break
             for key, lat, lng, c, err in ex.map(look, pending[i:i + 40]):
                 done += 1
@@ -76,8 +104,9 @@ def main():
                     if fails <= 5 or fails % 20 == 0: print(f"  photon error #{fails}: {err}")
                     if "429" in str(err) or "503" in str(err): time.sleep(10)
                     continue
-                if c:
-                    cand[key] = c; hits += 1
+                if c or cand.get(key):
+                    have = {x[0] for x in cand.get(key, [])}
+                    cand[key] = sorted(cand.get(key, []) + [x for x in c if x[0] not in have], key=lambda x: x[3]); hits += 1
                 else:
                     misses.append((key, lat, lng))
             if fails > 60 and fails > 0.5 * done:

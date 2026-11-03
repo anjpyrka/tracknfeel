@@ -699,6 +699,15 @@ ROLE_PREF = {
     "ferry": {"amenity=ferry_terminal"},
 }
 GENERIC_GOOD = ("amenity", "leisure", "tourism", "office", "shop", "healthcare", "club", "sport", "aeroway", "public_transport", "craft", "historic", "man_made", "emergency")
+GOOD_BUILDINGS = {"train_station", "school", "kindergarten", "university", "college", "hospital", "sports_hall", "sports_centre", "church", "hotel", "office", "civic", "public", "transportation", "stadium", "museum", "theatre"}
+
+def preferred_tags(role, cal_title):
+    pref = set(ROLE_PREF.get(role, set()))
+    if cal_title:
+        for rx, cats in CAL_HINTS:
+            if re.search(rx, cal_title, re.I):
+                pref |= cats
+    return pref
 WEAK_NAMES = re.compile(r"^(haus|house|block|building|gebäude|parking|parkplatz|garage|hof|platz|wohnanlage)\b", re.I)
 
 def load_calendar_hints(path, days, all_dates):
@@ -757,17 +766,16 @@ def calendar_label(title, loc):
 
 def choose_candidate(cands, role, cal_title):
     """Pick the OSM object that fits how the place is used; None if nothing convincing."""
-    pref = set(ROLE_PREF.get(role, set()))
-    if cal_title:
-        for rx, cats in CAL_HINTS:
-            if re.search(rx, cal_title, re.I):
-                pref |= cats
+    pref = preferred_tags(role, cal_title)
     best = None
     for name, k, v, d in cands:
         if not name or WEAK_NAMES.match(name): continue
         cat = f"{k}={v}"
-        fit = 2 if (cat in pref or f"{k}=*" in pref) else (1 if k in GENERIC_GOOD else 0)
+        fit = 2 if (cat in pref or f"{k}=*" in pref) else (1 if k in GENERIC_GOOD or (k == "building" and v in GOOD_BUILDINGS) else 0)
         if role == "dropoff" and k == "shop": fit = 0
+        if k == "building" and v == "train_station": fit = max(fit, 2) if role in ("station", "") else fit
+        if k == "amenity" and v in ("toilets", "atm", "vending_machine", "parking", "bench", "waste_basket", "bicycle_parking", "charging_station"): fit = -1
+        if k == "historic" and v == "memorial": fit = -1
         if k == "building" and v in ("yes", "apartments", "residential", "house"): fit = -1
         score = d - fit * 90
         if best is None or score < best[0]:
@@ -971,7 +979,13 @@ def main():
         places[key] = [round(m["lat"], 5), round(m["lng"], 5), int(m["min"]), m["n"], sem, label, city_ref(m["lat"], m["lng"]), kind]
     log(f"  places: {len(labels)} manual labels, {n_auto} roles inferred from visit patterns")
     # list for pipeline/osm_names.html (names from OpenStreetMap, run in your own browser)
-    todo = [[k, p[0], p[1]] for k, p in places.items() if not labels.get(k)]   # most time spent first; the Action looks these up
+    def photon_tags(pref):
+        return sorted({(t.split("=")[0] if t.endswith("=*") else t.replace("=", ":")) for t in pref})
+    todo = []
+    for k, p in places.items():                       # most time spent first; the Action looks these up
+        if labels.get(k): continue
+        role = auto.get(k, ("", ""))[0]; ct = cal.get(k, ("", 0, ""))[0]
+        todo.append([k, p[0], p[1], photon_tags(preferred_tags(role, ct))])
     json.dump(todo, open(os.path.join(INBOX, "places_todo.json"), "w"), separators=(",", ":"))
 
     # 3. write

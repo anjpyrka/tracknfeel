@@ -53,15 +53,14 @@ jobs:
         run: |
           cp inbox/osm_candidates.json /tmp/before.json 2>/dev/null || echo "{}" > /tmp/before.json
           python3 pipeline/osm_names.py
+          rclone copy inbox "gdrive:tracknfeel/inbox" --include "osm_candidates.json" --include "osm_targeted_done.json" -v 2>&1 | tail -1
           if cmp -s /tmp/before.json inbox/osm_candidates.json; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Rebuild with the new names and keep them in Drive
+      - name: Rebuild with the new names
         if: steps.names.outputs.changed == 'true'
         env:
           TRACKNFEEL_PASSPHRASE: ${{ secrets.TRACKNFEEL_PASSPHRASE }}
-        run: |
-          python3 pipeline/build.py | tail -3
-          rclone copy inbox "gdrive:tracknfeel/inbox" --include "osm_candidates.json" -v 2>&1 | tail -1
+        run: python3 pipeline/build.py | tail -3
 
       - name: Publish
         run: |
