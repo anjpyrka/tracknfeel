@@ -862,13 +862,15 @@ def main():
     global COUNTRY_NAMES
     COUNTRY_NAMES = json.load(open(os.path.join(PIPE, "countries.json"), encoding="utf-8"))
     labels = {}
-    lp = os.path.join(INBOX, "labels.json")
-    if os.path.exists(lp):
-        labels = json.load(open(lp, encoding="utf-8"))
+    for lp in sorted(glob.glob(os.path.join(INBOX, "labels*.json"))):   # labels.json, labels (1).json, labels_2026-11.json ... all merge
+        try:
+            labels.update(json.load(open(lp, encoding="utf-8")))
+        except Exception as e:
+            log("  cannot read", os.path.basename(lp), e)
 
     # 1. ingest
     tl_files = sorted(glob.glob(os.path.join(INBOX, "**", "*.json"), recursive=True))
-    tl_files = [p for p in tl_files if os.path.basename(p) not in ("reconstructed.json", "labels.json", "cameras.json", "photo_index.json")
+    tl_files = [p for p in tl_files if os.path.basename(p) not in ("reconstructed.json", "cameras.json", "photo_index.json", "places_todo.json", "osm_candidates.json", "osm_places.json", "osm_targeted_done.json", "review_top100.json") and not os.path.basename(p).startswith("labels")
                 and os.sep + "photos" + os.sep not in p]
     for p in tl_files:
         ingest_timeline(p)
