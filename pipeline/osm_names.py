@@ -88,7 +88,7 @@ def main():
     json.dump(sorted(tdone), open(tdone_path, "w"))
     print(f"targeted: {t_hits} places gained a role-matching candidate")
     def look(t):
-        key, lat, lng = t
+        key, lat, lng = t[0], t[1], t[2]
         try:
             return key, lat, lng, photon(lat, lng), None
         except Exception as e:
