@@ -627,42 +627,140 @@ def infer_roles(days, all_dates, city_of, big_city_of=None):
         city = city_of(s["lat"], s["lng"])
         hub = (big_city_of or city_of)(s["lat"], s["lng"])
         wdshare = s["wd"] / max(1, n)
-        label = ""
+        role = label = ""
         if s["fly"] >= 2 and s["fly"] >= 0.5 * n:
-            label = f"Airport ({hub})" if hub else "Airport"
+            role, label = "airport", (f"Airport ({hub})" if hub else "Airport")
         elif s["train"] >= 3 and s["train"] >= 0.5 * n:
-            label = f"Train station ({hub})" if hub else "Train station"
+            role, label = "station", (f"Train station ({hub})" if hub else "Train station")
         elif s["ferry"] >= 2 and s["ferry"] >= 0.5 * n:
-            label = f"Ferry terminal ({hub})" if hub else "Ferry terminal"
+            role, label = "ferry", (f"Ferry terminal ({hub})" if hub else "Ferry terminal")
         elif s["nights"] >= 14 and s["stays"] >= 3:
-            label = f"Second base in {city}" if city else "Second base"
+            role, label = "base", (f"Second base in {city}" if city else "Second base")
         elif s["nights"] >= 1 and s["nights"] >= 0.3 * nd:
-            label = f"Overnight stay in {city}" if city else "Overnight stay"
+            role, label = "hotel", (f"Overnight stay in {city}" if city else "Overnight stay")
         elif len(s["drop"]) >= 10 and wdshare >= 0.85 and med <= 30:
-            label = "Drop-off / pick-up spot (weekday mornings)" if len(s["pick"]) >= 4 else "Weekday morning drop-off"
+            role, label = "dropoff", ("Drop-off / pick-up spot (weekday mornings)" if len(s["pick"]) >= 4 else "Weekday morning drop-off")
         elif nd >= 15 and wdshare >= 0.8 and med >= 180 and s["morn"] >= 0.6 * n:
-            label = f"Likely workplace in {city}" if city else "Likely workplace"
+            role, label = "work", (f"Likely workplace in {city}" if city else "Likely workplace")
         elif nd >= 6:
             top_dow, top_n = s["dow"].most_common(1)[0]
             if top_n >= 0.6 * n and n >= 6:
-                label = f"Weekly {WEEKDAYS[top_dow]} spot"
+                role, label = "weekly", f"Weekly {WEEKDAYS[top_dow]} spot"
             elif med <= 40:
-                label = "Regular errand (shop, pickup…)" if s["eve"] + s["we"] >= 0.5 * n else "Regular quick stop"
+                role, label = "errand", ("Regular errand (shop, pickup…)" if s["eve"] + s["we"] >= 0.5 * n else "Regular quick stop")
             elif s["lunch"] >= 0.6 * n:
-                label = "Regular lunch place"
+                role, label = "lunch", "Regular lunch place"
             elif s["dinner"] >= 0.6 * n:
-                label = "Regular dinner place"
+                role, label = "dinner", "Regular dinner place"
             elif med >= 180:
-                label = "Friends, family or club? (regular long visits)"
+                role, label = "long", "Friends, family or club? (regular long visits)"
             elif s["eve"] >= 0.6 * n:
-                label = "Regular evening spot (sport, class or friends)"
+                role, label = "evening", "Regular evening spot (sport, class or friends)"
             elif s["we"] >= 0.7 * n:
-                label = "Weekend regular"
+                role, label = "weekend", "Weekend regular"
             else:
-                label = f"Regular spot ({nd} days)"
+                role, label = "regular", f"Regular spot ({nd} days)"
         if label:
-            out[key] = label
+            out[key] = (role, label)
     return out
+
+# ------------------------------------------------ calendar hints and OSM candidate choice
+CAL_HINTS = [   # keyword in a recurring calendar title -> preferred OSM categories
+    (r"basket|volley|handball|fu[sß]ball|football|soccer|training|practice|turnen|gym\b|fitness|yoga|pilates|judo|karate|tennis|hockey|climb|boulder|sport",
+     {"leisure=sports_centre", "leisure=sports_hall", "leisure=pitch", "leisure=fitness_centre", "leisure=stadium", "leisure=track", "amenity=community_centre", "building=sports_hall", "club=sport", "sport=*"}),
+    (r"schwimm|swim|pool|bad\b", {"leisure=swimming_pool", "leisure=sports_centre", "leisure=water_park"}),
+    (r"kita|kindergarten|crèche|creche|daycare|tagesmutter|kinderladen", {"amenity=kindergarten", "amenity=childcare"}),
+    (r"school|schule|école|ecole|lycée|lycee|grundschule|gymnasium|elternabend|parent", {"amenity=school", "amenity=kindergarten"}),
+    (r"zahn|dentist|orthodon|kieferorth", {"amenity=dentist", "healthcare=dentist"}),
+    (r"arzt|ärzt|doctor|docteur|pediatr|kinderarzt|physio|therap|praxis|clinic|klinik|hospital|krankenhaus|impf|vaccin|u\d\b",
+     {"amenity=doctors", "amenity=clinic", "amenity=hospital", "healthcare=*"}),
+    (r"friseur|hair|coiffeur|barber", {"shop=hairdresser"}),
+    (r"kino|cinema|film", {"amenity=cinema"}),
+    (r"theater|theatre|konzert|concert|oper|museum|ausstellung", {"amenity=theatre", "tourism=museum", "amenity=arts_centre"}),
+    (r"kirche|church|messe|gottesdienst|église|eglise", {"amenity=place_of_worship"}),
+    (r"musik|music|klavier|piano|geige|violin|gitarre|guitar|chor|choir", {"amenity=music_school", "amenity=school", "amenity=community_centre"}),
+    (r"lunch|dinner|abendessen|mittag|restaurant|brunch|drinks|bier|beer|apéro|apero", {"amenity=restaurant", "amenity=cafe", "amenity=bar", "amenity=pub", "amenity=biergarten", "amenity=fast_food"}),
+    (r"coworking|office|büro|workshop|training\s*day|meeting|client|kunde", {"office=*", "amenity=coworking_space", "building=office", "amenity=conference_centre"}),
+    (r"hotel|check-?in|übernacht|airbnb", {"tourism=hotel", "tourism=guest_house", "tourism=apartment", "tourism=hostel"}),
+]
+ROLE_PREF = {
+    "dropoff": {"amenity=kindergarten", "amenity=childcare", "amenity=school", "amenity=music_school", "leisure=sports_centre"},
+    "work": {"office=*", "amenity=coworking_space", "building=office", "amenity=university", "amenity=conference_centre"},
+    "hotel": {"tourism=hotel", "tourism=guest_house", "tourism=apartment", "tourism=hostel", "tourism=chalet", "tourism=camp_site"},
+    "base": {"tourism=hotel", "tourism=guest_house", "tourism=apartment"},
+    "lunch": {"amenity=restaurant", "amenity=cafe", "amenity=fast_food", "amenity=food_court"},
+    "dinner": {"amenity=restaurant", "amenity=bar", "amenity=pub", "amenity=biergarten", "amenity=cafe"},
+    "errand": {"shop=*", "amenity=pharmacy", "amenity=post_office", "amenity=bank", "amenity=fuel", "amenity=bicycle_rental", "amenity=cafe"},
+    "evening": {"leisure=sports_centre", "leisure=fitness_centre", "leisure=sports_hall", "amenity=restaurant", "amenity=bar", "amenity=community_centre", "club=*"},
+    "weekly": {"leisure=sports_centre", "leisure=fitness_centre", "leisure=sports_hall", "leisure=pitch", "leisure=swimming_pool", "amenity=music_school", "amenity=community_centre", "club=*", "amenity=place_of_worship"},
+    "weekend": {"leisure=*", "tourism=*", "amenity=restaurant", "amenity=cafe", "shop=supermarket"},
+    "airport": {"aeroway=aerodrome", "aeroway=terminal"},
+    "station": {"public_transport=station", "building=train_station", "amenity=bus_station"},
+    "ferry": {"amenity=ferry_terminal"},
+}
+GENERIC_GOOD = ("amenity", "leisure", "tourism", "office", "shop", "healthcare", "club", "sport", "aeroway", "public_transport", "craft", "historic", "man_made", "emergency")
+WEAK_NAMES = re.compile(r"^(haus|house|block|building|gebäude|parking|parkplatz|garage|hof|platz|wohnanlage)\b", re.I)
+
+def load_calendar_hints(path, days, all_dates):
+    """Per place: the recurring calendar event that usually overlaps my visits there -> (title, days)."""
+    if not os.path.exists(path):
+        return {}
+    byday = defaultdict(list)
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            try: ev = json.loads(line)
+            except Exception: continue
+            st, en, t = ev.get("s", ""), ev.get("e", ""), (ev.get("t") or "").strip()
+            if not t or "T" not in st or "T" not in en:
+                continue                                # all-day events say nothing about a place
+            try:
+                d0, m0, _, _ = parse_ts(st); d1, m1, _, _ = parse_ts(en)
+            except Exception:
+                continue
+            if d0 != d1: m1 = 1440.0
+            if m1 - m0 > 600: continue                   # multi-hour blocks (holidays, trips) are not a place
+            byday[d0].append((m0, m1, t, bool(ev.get("r"))))
+    hits = defaultdict(Counter); pdays = defaultdict(set)
+    for dd in all_dates:
+        D = days[dd]
+        if not byday.get(dd): continue
+        for v in D.visits:
+            a, b, key = v[0], v[1], v[4]
+            if b - a < 10 or v[6] == "P": continue
+            for m0, m1, t, rec in byday[dd]:
+                ov = min(b, m1) - max(a, m0)
+                if ov >= 0.5 * min(b - a, m1 - m0) and ov >= 15:
+                    hits[key][t] += 1; pdays[key].add(dd)
+    out = {}
+    for key, c in hits.items():
+        t, n = c.most_common(1)[0]
+        if n >= 3:
+            out[key] = (t, n)
+    return out
+
+def choose_candidate(cands, role, cal_title):
+    """Pick the OSM object that fits how the place is used; None if nothing convincing."""
+    pref = set(ROLE_PREF.get(role, set()))
+    if cal_title:
+        for rx, cats in CAL_HINTS:
+            if re.search(rx, cal_title, re.I):
+                pref |= cats
+    best = None
+    for name, k, v, d in cands:
+        if not name or WEAK_NAMES.match(name): continue
+        cat = f"{k}={v}"
+        fit = 2 if (cat in pref or f"{k}=*" in pref) else (1 if k in GENERIC_GOOD else 0)
+        if role == "dropoff" and k == "shop": fit = 0
+        if k == "building" and v in ("yes", "apartments", "residential", "house"): fit = -1
+        score = d - fit * 90
+        if best is None or score < best[0]:
+            best = (score, name, cat, d, fit)
+    if best is None: return None
+    score, name, cat, d, fit = best
+    if fit >= 2 and d <= 150: return name
+    if fit == 1 and d <= 60: return name
+    if fit <= 0 and d <= 25: return name
+    return None
 
 def _prev_day(dd):
     d = datetime.date(int(dd[:4]), int(dd[5:7]), int(dd[8:10])) - datetime.timedelta(days=1)
@@ -810,11 +908,18 @@ def main():
         index_days[dd] = [cref, round(km), src, touched[:3]]
 
     # places table (top by minutes) with labels: manual labels.json > OSM names (osm_places.json) > pattern-inferred role
-    osm = {}
-    op = os.path.join(INBOX, "osm_places.json")
+    cands = {}
+    cp = os.path.join(INBOX, "osm_candidates.json")
+    if os.path.exists(cp):
+        cands = json.load(open(cp, encoding="utf-8"))
+        log(f"  osm_candidates.json: {len(cands)} places looked up")
+    osm_old = {}
+    op = os.path.join(INBOX, "osm_places.json")           # older nearest-name results, used only where no candidates exist yet
     if os.path.exists(op):
-        osm = json.load(open(op, encoding="utf-8"))
-        log(f"  osm_places.json: {len(osm)} named places")
+        osm_old = json.load(open(op, encoding="utf-8"))
+    cal = load_calendar_hints(os.path.join(INBOX, "calendar_events.jsonl"), days, all_dates)
+    if cal:
+        log(f"  calendar: {len(cal)} places have a recurring event that overlaps my visits")
     def big_city_of(la, ln):
         # airports and main stations belong to the metropolis they serve, not the suburb they sit in
         best = None
@@ -834,15 +939,22 @@ def main():
         sem = m["sem"].most_common(1)[0][0] if m["sem"] else ""
         ll = f"{m['lat']:.4f},{m['lng']:.4f}"
         label = labels.get(key) or labels.get(ll) or ""
-        kind = 0                      # 0 manual/none, 1 OSM name, 2 inferred from patterns
-        if not label and (osm.get(key) or osm.get(ll)):
-            label, kind = (osm.get(key) or osm.get(ll)), 1
-        if not label and auto.get(key):
-            label, kind = auto[key], 2; n_auto += 1
+        kind = 0                      # 0 manual/none, 1 OSM name, 2 inferred from patterns, 3 calendar title
+        role, role_label = auto.get(key, ("", ""))
+        cal_title = cal.get(key, ("", 0))[0]
+        if not label and key in cands:
+            n = choose_candidate(cands[key], role, cal_title)
+            if n: label, kind = n, 1
+        if not label and key not in cands and (osm_old.get(key) or osm_old.get(ll)):
+            label, kind = (osm_old.get(key) or osm_old.get(ll)), 1
+        if not label and cal_title and cal.get(key, ("", 0))[1] >= 4:
+            label, kind = cal_title, 3
+        if not label and role_label:
+            label, kind = role_label, 2; n_auto += 1
         places[key] = [round(m["lat"], 5), round(m["lng"], 5), int(m["min"]), m["n"], sem, label, city_ref(m["lat"], m["lng"]), kind]
     log(f"  places: {len(labels)} manual labels, {n_auto} roles inferred from visit patterns")
     # list for pipeline/osm_names.html (names from OpenStreetMap, run in your own browser)
-    todo = [[k, p[0], p[1]] for k, p in places.items() if p[7] != 1 and not labels.get(k)]
+    todo = [[k, p[0], p[1]] for k, p in places.items() if not labels.get(k)]   # most time spent first; the Action looks these up
     json.dump(todo, open(os.path.join(INBOX, "places_todo.json"), "w"), separators=(",", ":"))
 
     # 3. write
